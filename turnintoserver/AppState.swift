@@ -1,0 +1,585 @@
+import AppKit
+import Combine
+import Foundation
+import ServiceManagement
+
+@MainActor
+final class AppState: ObservableObject {
+    private enum DefaultsKey {
+        static let allowBatteryServerMode = "allowBatteryServerMode"
+        static let lastCommandStatus = "lastCommandStatus"
+        static let lastKnownPowerSource = "lastKnownPowerSource"
+        static let serverModeRequested = "serverModeRequested"
+    }
+
+    @Published private(set) var powerSource: PowerSource {
+        didSet {
+            defaults.set(powerSource.rawValue, forKey: DefaultsKey.lastKnownPowerSource)
+        }
+    }
+
+    @Published private(set) var lidState: LidState = .unknown
+    @Published private(set) var serverModeActive = false
+    @Published private(set) var serverModeRequested = false {
+        didSet {
+            defaults.set(serverModeRequested, forKey: DefaultsKey.serverModeRequested)
+        }
+    }
+    @Published private(set) var lastCommandStatus: String {
+        didSet {
+            defaults.set(lastCommandStatus, forKey: DefaultsKey.lastCommandStatus)
+        }
+    }
+
+    @Published private(set) var isCommandRunning = false
+
+    @Published private(set) var allowBatteryServerMode: Bool {
+        didSet {
+            defaults.set(allowBatteryServerMode, forKey: DefaultsKey.allowBatteryServerMode)
+        }
+    }
+
+    @Published private(set) var launchAtLoginEnabled = false
+    @Published private(set) var isLaunchAtLoginChanging = false
+
+    private let defaults: UserDefaults
+    private let monitor: PowerSourceMonitor
+    private let lidMonitor: LidStateMonitor
+    private let powerManager: PowerManager
+    private let launchAtLoginManager: LaunchAtLoginManager
+    private var hasStarted = false
+    private var wakeObserver: NSObjectProtocol?
+    private var screensWakeObserver: NSObjectProtocol?
+    private var didHandleBuiltInDisplayForClosedLid = false
+    private var isBuiltInDisplayCommandRunning = false
+
+    init(
+        defaults: UserDefaults = .standard,
+        monitor: PowerSourceMonitor = PowerSourceMonitor(),
+        lidMonitor: LidStateMonitor = LidStateMonitor(),
+        powerManager: PowerManager? = nil,
+        launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
+    ) {
+        self.defaults = defaults
+        self.monitor = monitor
+        self.lidMonitor = lidMonitor
+        self.powerManager = powerManager ?? PowerManager()
+        self.launchAtLoginManager = launchAtLoginManager
+
+        defaults.removeObject(forKey: "serverModeActive")
+        defaults.removeObject(forKey: "savedPowerSettingsSnapshot")
+        allowBatteryServerMode = defaults.bool(forKey: DefaultsKey.allowBatteryServerMode)
+        serverModeRequested = defaults.bool(forKey: DefaultsKey.serverModeRequested)
+
+        let savedSource = defaults.string(forKey: DefaultsKey.lastKnownPowerSource)
+        powerSource = savedSource.flatMap(PowerSource.init(rawValue:)) ?? .unknown
+        lastCommandStatus = AppText.notStarted
+
+        refreshLaunchAtLoginEnabled()
+    }
+
+    var menuBarStatusTitle: String {
+        if serverModeActive {
+            return allowBatteryServerMode
+                ? AppText.serverModeOnBatteryAllowed
+                : AppText.serverModeOnPowerOnly
+        }
+
+        if isWaitingForPowerAdapter {
+            return AppText.waitingForPowerAdapter
+        }
+
+        return "turnintoserver"
+    }
+
+    var menuBarIconStyle: MenuBarIconStyle {
+        guard serverModeActive else {
+            return .idle
+        }
+
+        return allowBatteryServerMode ? .serverModeBatteryAllowed : .serverModePowerOnly
+    }
+
+    var serverModeActionTitle: String {
+        if serverModeRequested || serverModeActive {
+            return AppText.stopServerMode
+        }
+
+        return AppText.startServerMode
+    }
+
+    var serverModeActionSystemImage: String {
+        serverModeRequested || serverModeActive ? "power" : "server.rack"
+    }
+
+    var statusSummaryDisplay: String {
+        guard serverModeRequested else {
+            return AppText.notStarted
+        }
+
+        if powerSource == .batteryPower, !allowBatteryServerMode {
+            return AppText.connectPowerToKeepRunningWithLidClosed
+        }
+
+        return AppText.keepsRunningWithLidClosed
+    }
+
+    private var isWaitingForPowerAdapter: Bool {
+        serverModeRequested && !serverModeActive && powerSource == .batteryPower && !allowBatteryServerMode
+    }
+
+    func start() {
+        guard !hasStarted else {
+            return
+        }
+
+        hasStarted = true
+        startWakeObservers()
+
+        monitor.start { [weak self] source in
+            self?.handlePowerSourceUpdate(source)
+        }
+
+        lidMonitor.start { [weak self] state in
+            self?.handleLidStateUpdate(state)
+        }
+
+        Task {
+            await refreshServerModeStatus()
+        }
+    }
+
+    func setAllowBatteryServerMode(_ isEnabled: Bool) {
+        guard allowBatteryServerMode != isEnabled else {
+            return
+        }
+
+        allowBatteryServerMode = isEnabled
+        lastCommandStatus = isEnabled ? "电池供电已允许" : "电池供电已限制"
+
+        if serverModeRequested {
+            Task {
+                await reconcileServerMode()
+            }
+        }
+    }
+
+    func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
+        guard !isLaunchAtLoginChanging else {
+            return
+        }
+
+        let previousEnabled = launchAtLoginEnabled
+        isLaunchAtLoginChanging = true
+        launchAtLoginEnabled = isEnabled
+
+        defer {
+            isLaunchAtLoginChanging = false
+        }
+
+        do {
+            try launchAtLoginManager.setEnabled(isEnabled)
+            refreshLaunchAtLoginEnabled()
+
+            if let statusMessage = launchAtLoginManager.attentionMessage {
+                lastCommandStatus = statusMessage
+            }
+        } catch {
+            launchAtLoginEnabled = previousEnabled
+            refreshLaunchAtLoginEnabled()
+            lastCommandStatus = "开机启动失败：\(error.localizedDescription)"
+        }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        refreshLaunchAtLoginEnabled()
+
+        if let statusMessage = launchAtLoginManager.attentionMessage {
+            lastCommandStatus = statusMessage
+        }
+    }
+
+    private func refreshLaunchAtLoginEnabled() {
+        launchAtLoginEnabled = launchAtLoginManager.isEnabled
+    }
+
+    func toggleServerMode() async {
+        if serverModeRequested || serverModeActive {
+            await disableServerMode()
+        } else {
+            serverModeRequested = true
+            await reconcileServerMode()
+        }
+    }
+
+    func prepareForQuit() async -> Bool {
+        serverModeRequested = false
+
+        if serverModeActive {
+            await stopServerMode(clearRequest: true)
+        }
+
+        return !serverModeActive
+    }
+
+    private func reconcileServerMode() async {
+        guard serverModeRequested else {
+            if serverModeActive {
+                await stopServerMode(clearRequest: false)
+            }
+
+            return
+        }
+
+        let currentSource = await currentPowerSource()
+
+        guard canRunServerMode(on: currentSource) else {
+            if serverModeActive {
+                await stopServerMode(clearRequest: false, successMessage: "已暂停，等待连接电源适配器")
+            } else {
+                lastCommandStatus = "等待连接电源适配器"
+            }
+
+            return
+        }
+
+        guard !serverModeActive else {
+            return
+        }
+
+        await startServerMode(powerSource: currentSource)
+    }
+
+    private func disableServerMode() async {
+        if serverModeActive {
+            await stopServerMode(clearRequest: true)
+        } else {
+            serverModeRequested = false
+            lastCommandStatus = "Server 模式已取消"
+        }
+    }
+
+    private func startServerMode(powerSource: PowerSource) async {
+        guard beginCommand(waitingStatus: "等待授权启用") else {
+            return
+        }
+
+        let result = await powerManager.enableServerMode(powerSource: powerSource)
+        applyStart(result)
+        finishCommand()
+
+        if case .success = result {
+            await dimClosedLidBuiltInDisplayIfNeeded()
+        }
+    }
+
+    private func stopServerMode(clearRequest: Bool, successMessage: String? = nil) async {
+        guard beginCommand(waitingStatus: "等待授权关闭") else {
+            return
+        }
+
+        let previousRequest = serverModeRequested
+        if clearRequest {
+            serverModeRequested = false
+        }
+
+        let result = await powerManager.restoreSleepSettings()
+        applyStop(
+            result,
+            clearRequest: clearRequest,
+            previousRequest: previousRequest,
+            successMessage: successMessage
+        )
+        finishCommand()
+    }
+
+    private func refreshServerModeStatus() async {
+        let currentSource = await currentPowerSource()
+        let isSleepDisabled = await powerManager.detectSleepDisabled()
+        let shouldRestoreRequestedMode = serverModeRequested
+        serverModeActive = isSleepDisabled
+        serverModeRequested = isSleepDisabled || shouldRestoreRequestedMode
+
+        if isSleepDisabled {
+            powerManager.adoptExistingServerMode(powerSource: currentSource)
+            lastCommandStatus = "检测到合盖模式已启用"
+
+            if !canRunServerMode(on: currentSource), !isCommandRunning {
+                await reconcileServerMode()
+            }
+        } else if shouldRestoreRequestedMode, !isCommandRunning {
+            await reconcileServerMode()
+        }
+
+        if serverModeActive, !isCommandRunning {
+            await dimClosedLidBuiltInDisplayIfNeeded()
+        }
+    }
+
+    private func currentPowerSource() async -> PowerSource {
+        let detectedSource = await monitor.detectPowerSource()
+        powerSource = detectedSource
+        return detectedSource
+    }
+
+    private func currentLidState() async -> LidState {
+        let detectedState = await lidMonitor.detectLidState()
+        lidState = detectedState
+        return detectedState
+    }
+
+    private func handlePowerSourceUpdate(_ newSource: PowerSource) {
+        let oldSource = powerSource
+        powerSource = newSource
+
+        guard (serverModeRequested || serverModeActive), !isCommandRunning else {
+            return
+        }
+
+        let activeButDisallowed = serverModeActive && !canRunServerMode(on: newSource)
+        let shouldReconcile = oldSource != newSource
+            || isWaitingForPowerAdapter
+            || (newSource == .acPower && !serverModeActive)
+            || activeButDisallowed
+
+        guard shouldReconcile else {
+            return
+        }
+
+        Task {
+            await reconcileServerMode()
+        }
+    }
+
+    private func handleLidStateUpdate(_ newState: LidState) {
+        let oldState = lidState
+        lidState = newState
+
+        guard newState == .closed else {
+            if oldState == .closed {
+                didHandleBuiltInDisplayForClosedLid = false
+                restoreBuiltInDisplayBrightnessIfNeeded()
+            }
+            return
+        }
+
+        guard serverModeActive, !isCommandRunning else {
+            return
+        }
+
+        Task {
+            await dimClosedLidBuiltInDisplayIfNeeded()
+        }
+    }
+
+    private func startWakeObservers() {
+        guard wakeObserver == nil, screensWakeObserver == nil else {
+            return
+        }
+
+        let notificationCenter = NSWorkspace.shared.notificationCenter
+        wakeObserver = notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.handleWake()
+            }
+        }
+
+        screensWakeObserver = notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.handleWake()
+            }
+        }
+    }
+
+    private func handleWake() async {
+        guard (serverModeRequested || serverModeActive), !isCommandRunning else {
+            return
+        }
+
+        _ = await currentPowerSource()
+        await reconcileServerMode()
+        await dimClosedLidBuiltInDisplayIfNeeded(force: true)
+    }
+
+    private func dimClosedLidBuiltInDisplayIfNeeded(force: Bool = false) async {
+        guard serverModeActive else {
+            return
+        }
+
+        let currentState = await currentLidState()
+        guard currentState == .closed else {
+            didHandleBuiltInDisplayForClosedLid = false
+            restoreBuiltInDisplayBrightnessIfNeeded()
+            return
+        }
+
+        guard force || !didHandleBuiltInDisplayForClosedLid else {
+            return
+        }
+
+        guard !isBuiltInDisplayCommandRunning else {
+            return
+        }
+
+        isBuiltInDisplayCommandRunning = true
+        let result = powerManager.dimBuiltInDisplayForClosedLid()
+        isBuiltInDisplayCommandRunning = false
+
+        switch result {
+        case .success(let message):
+            didHandleBuiltInDisplayForClosedLid = true
+            lastCommandStatus = message
+        case .userCancelled:
+            didHandleBuiltInDisplayForClosedLid = false
+            lastCommandStatus = "内建屏调暗取消"
+        case .failure(let message):
+            didHandleBuiltInDisplayForClosedLid = false
+            lastCommandStatus = "内建屏调暗失败：\(message)"
+        }
+    }
+
+    private func restoreBuiltInDisplayBrightnessIfNeeded() {
+        guard !isBuiltInDisplayCommandRunning else {
+            return
+        }
+
+        isBuiltInDisplayCommandRunning = true
+        let result = powerManager.restoreBuiltInDisplayBrightness()
+        isBuiltInDisplayCommandRunning = false
+
+        switch result {
+        case .success(let message):
+            lastCommandStatus = message
+        case .userCancelled:
+            lastCommandStatus = "内建屏亮度恢复取消"
+        case .failure(let message):
+            lastCommandStatus = "内建屏亮度恢复失败：\(message)"
+        }
+    }
+
+    private func beginCommand(waitingStatus: String) -> Bool {
+        guard !isCommandRunning else {
+            lastCommandStatus = "已有命令执行中"
+            return false
+        }
+
+        isCommandRunning = true
+        lastCommandStatus = waitingStatus
+        return true
+    }
+
+    private func finishCommand() {
+        isCommandRunning = false
+    }
+
+    private func applyStart(_ result: PowerCommandResult) {
+        switch result {
+        case .success(let message):
+            serverModeRequested = true
+            serverModeActive = true
+            lastCommandStatus = "成功：\(message)"
+        case .userCancelled:
+            serverModeRequested = false
+            serverModeActive = false
+            lastCommandStatus = "用户取消授权"
+        case .failure(let message):
+            serverModeRequested = false
+            serverModeActive = false
+            lastCommandStatus = "失败：\(message)"
+        }
+    }
+
+    private func applyStop(
+        _ result: PowerCommandResult,
+        clearRequest: Bool,
+        previousRequest: Bool,
+        successMessage: String?
+    ) {
+        switch result {
+        case .success(let message):
+            serverModeActive = false
+            didHandleBuiltInDisplayForClosedLid = false
+            restoreBuiltInDisplayBrightnessIfNeeded()
+            if !clearRequest {
+                serverModeRequested = previousRequest
+            }
+            lastCommandStatus = "成功：\(successMessage ?? message)"
+        case .userCancelled:
+            if clearRequest {
+                serverModeRequested = previousRequest
+            }
+            lastCommandStatus = "用户取消授权"
+        case .failure(let message):
+            if clearRequest {
+                serverModeRequested = previousRequest
+            }
+            lastCommandStatus = "失败：\(message)"
+        }
+    }
+
+    private func canRunServerMode(on source: PowerSource) -> Bool {
+        source != .batteryPower || allowBatteryServerMode
+    }
+}
+
+struct LaunchAtLoginManager {
+    private var status: SMAppService.Status {
+        SMAppService.mainApp.status
+    }
+
+    var isEnabled: Bool {
+        status == .enabled || status == .requiresApproval
+    }
+
+    var statusMessage: String {
+        switch status {
+        case .enabled:
+            return AppText.launchAtLoginOn
+        case .notRegistered:
+            return AppText.launchAtLoginOff
+        case .requiresApproval:
+            return AppText.launchAtLoginRequiresApproval
+        case .notFound:
+            return AppText.launchAtLoginAppNotFound
+        @unknown default:
+            return AppText.launchAtLoginUnknown
+        }
+    }
+
+    var attentionMessage: String? {
+        switch status {
+        case .requiresApproval, .notFound:
+            return statusMessage
+        case .enabled, .notRegistered:
+            return nil
+        @unknown default:
+            return statusMessage
+        }
+    }
+
+    func setEnabled(_ isEnabled: Bool) throws {
+        let service = SMAppService.mainApp
+
+        if isEnabled {
+            guard service.status != .enabled, service.status != .requiresApproval else {
+                return
+            }
+
+            try service.register()
+        } else {
+            guard service.status != .notRegistered, service.status != .notFound else {
+                return
+            }
+
+            try service.unregister()
+        }
+    }
+}
