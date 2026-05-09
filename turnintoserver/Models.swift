@@ -2,7 +2,13 @@ import Foundation
 
 enum AppDefaultsKey {
     static let iMessageRecipientAddress = "iMessageRecipientAddress"
+    static let verifiedIMessageRecipientAddress = "verifiedIMessageRecipientAddress"
+    static let barkPushEndpoint = "barkPushEndpoint"
+    static let verifiedBarkPushEndpoint = "verifiedBarkPushEndpoint"
     static let lowBatteryNotificationsEnabled = "lowBatteryNotificationsEnabled"
+    static let hotKeysEnabled = "hotKeysEnabled"
+    static let serverModeHotKey = "serverModeHotKey"
+    static let batteryModeHotKey = "batteryModeHotKey"
 }
 
 enum AppText {
@@ -62,19 +68,55 @@ enum AppText {
     }
 
     static var lowBatteryNotifications: String {
-        localized(chinese: "推送低电量通知", english: "Low Battery iMessage Alerts")
+        localized(chinese: "推送低电量通知", english: "Low Battery Alerts")
+    }
+
+    static var configureLowBatteryNotifications: String {
+        localized(chinese: "设置", english: "Set Up")
+    }
+
+    static var lowBatteryNotificationsRequireTest: String {
+        localized(chinese: "请先在低电量提醒设置里完成至少一个通道的测试。", english: "Test at least one low battery alert channel first.")
     }
 
     static var launchAtLogin: String {
         localized(chinese: "开机自动启动", english: "Open at Login")
     }
 
-    static var aboutApp: String {
-        localized(chinese: "关于应用", english: "About")
+    static var preferences: String {
+        localized(chinese: "偏好设置", english: "Preferences")
+    }
+
+    static var aboutApplication: String {
+        localized(chinese: "关于应用", english: "About turnintoserver")
+    }
+
+    static var settings: String {
+        localized(chinese: "设置", english: "Settings")
     }
 
     static var quit: String {
         localized(chinese: "退出", english: "Quit")
+    }
+
+    static var edit: String {
+        localized(chinese: "编辑", english: "Edit")
+    }
+
+    static var cut: String {
+        localized(chinese: "剪切", english: "Cut")
+    }
+
+    static var copy: String {
+        localized(chinese: "复制", english: "Copy")
+    }
+
+    static var paste: String {
+        localized(chinese: "粘贴", english: "Paste")
+    }
+
+    static var selectAll: String {
+        localized(chinese: "全选", english: "Select All")
     }
 
     static var cancel: String {
@@ -116,28 +158,71 @@ enum AppText {
         localized(chinese: "快捷键", english: "Shortcuts")
     }
 
-    static var serverModeShortcutHint: String {
-        localized(chinese: "⌃⌥⌘O：切换 Server Mode", english: "⌃⌥⌘O: Toggle Server Mode")
+    static var enableShortcuts: String {
+        localized(chinese: "启用快捷键", english: "Enable Shortcuts")
     }
 
-    static var batteryModeShortcutHint: String {
-        localized(chinese: "⌃⌥⌘P：切换电池模式", english: "⌃⌥⌘P: Toggle Battery Mode")
+    static var configureShortcuts: String {
+        localized(chinese: "设置", english: "Set Up")
+    }
+
+    static var serverModeShortcutLabel: String {
+        localized(chinese: "切换 Server Mode", english: "Toggle Server Mode")
+    }
+
+    static var batteryModeShortcutLabel: String {
+        localized(chinese: "切换电池模式", english: "Toggle Battery Mode")
+    }
+
+    static var recordShortcut: String {
+        localized(chinese: "录制", english: "Record")
+    }
+
+    static var recordingShortcut: String {
+        localized(chinese: "按下新的快捷键…", english: "Press the new shortcut...")
+    }
+
+    static var resetShortcuts: String {
+        localized(chinese: "恢复默认快捷键", english: "Reset Shortcuts")
+    }
+
+    static var shortcutRecordHint: String {
+        localized(chinese: "录制时至少包含一个修饰键。", english: "Use at least one modifier key when recording.")
+    }
+
+    static var shortcutsOn: String {
+        localized(chinese: "快捷键已启用", english: "Shortcuts are on")
+    }
+
+    static var shortcutsOff: String {
+        localized(chinese: "快捷键已关闭", english: "Shortcuts are off")
     }
 
     static var iMessageSettingsTitle: String {
-        localized(chinese: "低电量 iMessage 通知", english: "Low Battery iMessage Alerts")
+        localized(chinese: "低电量提醒", english: "Low Battery Alerts")
     }
 
     static var iMessageRecipientPlaceholder: String {
         localized(chinese: "手机号或 Apple ID 邮箱", english: "Phone number or Apple ID email")
     }
 
+    static var barkPushEndpointPlaceholder: String {
+        localized(chinese: "Bark 推送地址，例如 https://api.day.app/你的key", english: "Bark push URL, e.g. https://api.day.app/your-key")
+    }
+
     static var sendTestMessage: String {
-        localized(chinese: "测试发送", english: "Send Test")
+        localized(chinese: "测试 iMessage", english: "Test iMessage")
+    }
+
+    static var sendBarkTest: String {
+        localized(chinese: "测试 Bark", english: "Test Bark")
     }
 
     static var iMessageSettingsIdle: String {
-        localized(chinese: "低于 50% 和 20% 时会各发送一次。", english: "Sends once below 50% and once below 20%.")
+        localized(
+            chinese: "填写 iMessage 或 Bark 任一通道并测试成功后，才能开启低电量提醒。两个都填写时会同时推送。低于 50% 和 20% 时各发送一次。",
+            english: "Configure and successfully test iMessage or Bark before enabling alerts. If both are set, both will be used. Sends once below 50% and once below 20%."
+        )
     }
 
     static var iMessageRecipientMissing: String {
@@ -152,6 +237,10 @@ enum AppText {
         localized(chinese: "测试消息已发送。", english: "Test message sent.")
     }
 
+    static var iMessageNeedsRetest: String {
+        localized(chinese: "iMessage 地址已修改，需要重新测试。", english: "iMessage address changed; test it again.")
+    }
+
     static func iMessageTestFailed(_ message: String) -> String {
         localized(chinese: "测试发送失败：\(message)", english: "Test send failed: \(message)")
     }
@@ -160,6 +249,33 @@ enum AppText {
         localized(
             chinese: "turnintoserver 测试：\(macName) 的低电量 iMessage 通知已配置成功。",
             english: "turnintoserver test: low battery iMessage alerts are configured on \(macName)."
+        )
+    }
+
+    static var barkEndpointMissing: String {
+        localized(chinese: "请先填写 Bark 推送地址。", english: "Enter a Bark push URL first.")
+    }
+
+    static var barkTestSending: String {
+        localized(chinese: "正在通过 Bark 发送…", english: "Sending through Bark...")
+    }
+
+    static var barkTestSent: String {
+        localized(chinese: "Bark 测试已发送。", english: "Bark test sent.")
+    }
+
+    static var barkNeedsRetest: String {
+        localized(chinese: "Bark 地址已修改，需要重新测试。", english: "Bark URL changed; test it again.")
+    }
+
+    static func barkTestFailed(_ message: String) -> String {
+        localized(chinese: "Bark 测试失败：\(message)", english: "Bark test failed: \(message)")
+    }
+
+    static func barkTestBody(macName: String) -> String {
+        localized(
+            chinese: "\(macName) 的低电量 Bark 通知已配置成功。",
+            english: "Low battery Bark alerts are configured on \(macName)."
         )
     }
 
@@ -180,7 +296,7 @@ enum AppText {
     }
 
     static func updateAvailable(_ version: String) -> String {
-        localized(chinese: "发现新版本 \(version)，可以下载最新 DMG。", english: "Version \(version) is available.")
+        localized(chinese: "发现新版本 \(version)，正在准备下载。", english: "Version \(version) is available. Preparing to download.")
     }
 
     static func noDMGFound(_ version: String) -> String {
@@ -188,11 +304,31 @@ enum AppText {
     }
 
     static var downloadLatestDMG: String {
-        localized(chinese: "下载最新 DMG", english: "Download Latest DMG")
+        localized(chinese: "下载并安装更新", english: "Download and Install")
     }
 
     static var downloadingLatestDMG: String {
-        localized(chinese: "正在下载最新 DMG…", english: "Downloading latest DMG...")
+        localized(chinese: "正在下载更新…", english: "Downloading update...")
+    }
+
+    static func downloadingUpdateProgress(_ percent: Int) -> String {
+        localized(chinese: "正在下载更新…\(percent)%", english: "Downloading update... \(percent)%")
+    }
+
+    static var updateReadyToRestart: String {
+        localized(chinese: "更新已准备好，重新启动应用后完成安装。", english: "Update is ready. Restart the app to finish installing.")
+    }
+
+    static var restartToInstallUpdate: String {
+        localized(chinese: "重新启动应用", english: "Restart App")
+    }
+
+    static var restartingToInstallUpdate: String {
+        localized(chinese: "正在重新启动并安装更新…", english: "Restarting to install update...")
+    }
+
+    static func updateInstallFailed(_ message: String) -> String {
+        localized(chinese: "安装更新失败：\(message)", english: "Update install failed: \(message)")
     }
 
     static func downloadFinished(_ fileName: String) -> String {
@@ -407,6 +543,10 @@ enum AppText {
         localized(chinese: "Messages 未能发送消息。", english: "Messages did not send the message.")
     }
 
+    static var barkDidNotSend: String {
+        localized(chinese: "Bark 未能发送消息。", english: "Bark did not send the message.")
+    }
+
     static func lowBatteryIMessage(threshold: Int, batteryPercentage: Int, macName: String) -> String {
         localized(
             chinese: "turnintoserver 警告：\(macName) 正在使用电池运行 Server Mode，电量已低于 \(threshold)%（当前 \(batteryPercentage)%）。请尽快接入电源。",
@@ -414,12 +554,24 @@ enum AppText {
         )
     }
 
-    static func lowBatteryNotificationSent(threshold: Int) -> String {
-        localized(chinese: "已发送低电量通知：低于 \(threshold)%", english: "Low battery alert sent: below \(threshold)%")
+    static func lowBatteryNotificationTitle(threshold: Int) -> String {
+        localized(chinese: "低电量提醒：低于 \(threshold)%", english: "Low Battery Alert: Below \(threshold)%")
+    }
+
+    static func lowBatteryNotificationSent(threshold: Int, channels: [String]) -> String {
+        let channelList = channels.joined(separator: ", ")
+        return localized(
+            chinese: "已发送低电量通知：低于 \(threshold)%（\(channelList)）",
+            english: "Low battery alert sent below \(threshold)% (\(channelList))"
+        )
     }
 
     static func lowBatteryNotificationFailed(_ message: String) -> String {
         localized(chinese: "低电量通知发送失败：\(message)", english: "Low battery alert failed: \(message)")
+    }
+
+    static var lowBatteryNotificationChannelMissing: String {
+        localized(chinese: "请先在低电量提醒设置里填写 iMessage 或 Bark 通道。", english: "Configure an iMessage or Bark channel in low battery alert settings first.")
     }
 
     static func localized(chinese: String, english: String) -> String {
@@ -515,6 +667,14 @@ enum PowerCommandResult: Equatable {
     case failure(String)
 }
 
+struct LowBatteryNotificationReadiness: Equatable {
+    var canEnable: Bool
+    var iMessageConfigured = false
+    var iMessageVerified = false
+    var barkConfigured = false
+    var barkVerified = false
+}
+
 enum PowerManagerError: LocalizedError {
     case unsupportedUserName
 
@@ -573,6 +733,100 @@ enum IMessageNotifierError: LocalizedError {
             return AppText.iMessageRecipientMissing
         case .sendFailed(let message):
             return message.isEmpty ? AppText.messagesDidNotSend : message
+        }
+    }
+}
+
+enum BarkNotifier {
+    static func send(title: String, body: String, endpoint: String) async throws {
+        let requestURL = try normalizedEndpoint(endpoint)
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("turnintoserver", forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: [
+                "title": title,
+                "body": body,
+                "group": "turnintoserver"
+            ],
+            options: []
+        )
+
+        let (data, response) = try await fetchData(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw BarkNotifierError.sendFailed(AppText.barkDidNotSend)
+        }
+
+        if let barkResponse = try? JSONDecoder().decode(BarkResponse.self, from: data),
+           let code = barkResponse.code,
+           code != 200 {
+            throw BarkNotifierError.sendFailed(barkResponse.message ?? AppText.barkDidNotSend)
+        }
+    }
+
+    private struct BarkResponse: Decodable {
+        let code: Int?
+        let message: String?
+    }
+
+    private static func normalizedEndpoint(_ endpoint: String) throws -> URL {
+        let trimmedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEndpoint.isEmpty else {
+            throw BarkNotifierError.missingEndpoint
+        }
+
+        let endpointWithScheme: String
+        if trimmedEndpoint.contains("://") {
+            endpointWithScheme = trimmedEndpoint
+        } else {
+            endpointWithScheme = "https://\(trimmedEndpoint)"
+        }
+
+        guard let url = URL(string: endpointWithScheme),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil else {
+            throw BarkNotifierError.invalidEndpoint
+        }
+
+        return url
+    }
+
+    private static func fetchData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                guard let data, let response else {
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                    return
+                }
+
+                continuation.resume(returning: (data, response))
+            }
+            .resume()
+        }
+    }
+}
+
+enum BarkNotifierError: LocalizedError {
+    case missingEndpoint
+    case invalidEndpoint
+    case sendFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingEndpoint:
+            return AppText.barkEndpointMissing
+        case .invalidEndpoint:
+            return AppText.barkDidNotSend
+        case .sendFailed(let message):
+            return message.isEmpty ? AppText.barkDidNotSend : message
         }
     }
 }

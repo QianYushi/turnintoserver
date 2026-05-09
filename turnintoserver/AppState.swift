@@ -57,6 +57,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published private(set) var hotKeysEnabled: Bool {
+        didSet {
+            defaults.set(hotKeysEnabled, forKey: AppDefaultsKey.hotKeysEnabled)
+            NotificationCenter.default.post(name: .turnIntoServerHotKeysDidChange, object: nil)
+        }
+    }
+
     private let defaults: UserDefaults
     private let monitor: PowerSourceMonitor
     private let lidMonitor: LidStateMonitor
@@ -88,13 +95,20 @@ final class AppState: ObservableObject {
         defaults.removeObject(forKey: "serverModeActive")
         defaults.removeObject(forKey: "savedPowerSettingsSnapshot")
         allowBatteryServerMode = defaults.bool(forKey: DefaultsKey.allowBatteryServerMode)
-        lowBatteryNotificationsEnabled = defaults.bool(forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
+        let savedLowBatteryNotificationsEnabled = defaults.bool(forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
+        let canEnableSavedLowBatteryNotifications = Self.canEnableLowBatteryNotifications(defaults: defaults)
+        lowBatteryNotificationsEnabled = savedLowBatteryNotificationsEnabled && canEnableSavedLowBatteryNotifications
+        hotKeysEnabled = defaults.object(forKey: AppDefaultsKey.hotKeysEnabled) as? Bool ?? true
         serverModeRequested = defaults.bool(forKey: DefaultsKey.serverModeRequested)
 
         let savedSource = defaults.string(forKey: DefaultsKey.lastKnownPowerSource)
         powerSource = savedSource.flatMap(PowerSource.init(rawValue:)) ?? .unknown
         lastCommandStatus = AppText.notStarted
         serverModeStartedAt = defaults.object(forKey: DefaultsKey.serverModeStartedAt) as? Date
+
+        if savedLowBatteryNotificationsEnabled && !canEnableSavedLowBatteryNotifications {
+            defaults.set(false, forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
+        }
 
         refreshLaunchAtLoginEnabled()
     }
@@ -352,8 +366,28 @@ final class AppState: ObservableObject {
         setLowBatteryNotificationsEnabled(!lowBatteryNotificationsEnabled)
     }
 
+    func toggleHotKeysEnabled() {
+        setHotKeysEnabled(!hotKeysEnabled)
+    }
+
+    func setHotKeysEnabled(_ isEnabled: Bool) {
+        guard hotKeysEnabled != isEnabled else {
+            return
+        }
+
+        hotKeysEnabled = isEnabled
+        lastCommandStatus = isEnabled ? AppText.shortcutsOn : AppText.shortcutsOff
+    }
+
     func setLowBatteryNotificationsEnabled(_ isEnabled: Bool) {
         guard lowBatteryNotificationsEnabled != isEnabled else {
+            return
+        }
+
+        guard !isEnabled || Self.canEnableLowBatteryNotifications(defaults: defaults) else {
+            lowBatteryNotificationsEnabled = false
+            lastCommandStatus = AppText.lowBatteryNotificationsRequireTest
+            sentLowBatteryThresholds.removeAll()
             return
         }
 
@@ -367,6 +401,38 @@ final class AppState: ObservableObject {
             lastCommandStatus = AppText.lowBatteryNotificationsOff
             sentLowBatteryThresholds.removeAll()
         }
+    }
+
+    static func canEnableLowBatteryNotifications(defaults: UserDefaults = .standard) -> Bool {
+        lowBatteryNotificationReadiness(defaults: defaults).canEnable
+    }
+
+    static func lowBatteryNotificationReadiness(defaults: UserDefaults = .standard) -> LowBatteryNotificationReadiness {
+        let recipient = defaults.string(forKey: AppDefaultsKey.iMessageRecipientAddress)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let verifiedRecipient = defaults.string(forKey: AppDefaultsKey.verifiedIMessageRecipientAddress)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let barkEndpoint = defaults.string(forKey: AppDefaultsKey.barkPushEndpoint)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let verifiedBarkEndpoint = defaults.string(forKey: AppDefaultsKey.verifiedBarkPushEndpoint)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let iMessageConfigured = !recipient.isEmpty
+        let barkConfigured = !barkEndpoint.isEmpty
+        let iMessageVerified = iMessageConfigured && recipient == verifiedRecipient
+        let barkVerified = barkConfigured && barkEndpoint == verifiedBarkEndpoint
+
+        guard iMessageConfigured || barkConfigured else {
+            return LowBatteryNotificationReadiness(canEnable: false)
+        }
+
+        return LowBatteryNotificationReadiness(
+            canEnable: (!iMessageConfigured || iMessageVerified) && (!barkConfigured || barkVerified),
+            iMessageConfigured: iMessageConfigured,
+            iMessageVerified: iMessageVerified,
+            barkConfigured: barkConfigured,
+            barkVerified: barkVerified
+        )
     }
 
     func prepareForQuit() async -> Bool {
@@ -584,6 +650,7 @@ final class AppState: ObservableObject {
 
     private func evaluateLowBatteryNotification() async {
         guard lowBatteryNotificationsEnabled,
+              Self.canEnableLowBatteryNotifications(defaults: defaults),
               serverModeActive,
               allowBatteryServerMode,
               powerSource == .batteryPower else {
@@ -608,26 +675,52 @@ final class AppState: ObservableObject {
             return
         }
 
-        sentLowBatteryThresholds.insert(threshold)
-
         let recipient = defaults.string(forKey: AppDefaultsKey.iMessageRecipientAddress)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !recipient.isEmpty else {
-            lastCommandStatus = AppText.iMessageRecipientMissing
+        let barkEndpoint = defaults.string(forKey: AppDefaultsKey.barkPushEndpoint)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !recipient.isEmpty || !barkEndpoint.isEmpty else {
+            lastCommandStatus = AppText.lowBatteryNotificationChannelMissing
             return
         }
 
+        sentLowBatteryThresholds.insert(threshold)
+
+        let title = AppText.lowBatteryNotificationTitle(threshold: threshold)
         let message = AppText.lowBatteryIMessage(
             threshold: threshold,
             batteryPercentage: batteryPercentage,
             macName: IMessageNotifier.defaultMacName
         )
 
-        do {
-            try await IMessageNotifier.send(message: message, to: recipient)
-            lastCommandStatus = AppText.lowBatteryNotificationSent(threshold: threshold)
-        } catch {
-            lastCommandStatus = AppText.lowBatteryNotificationFailed(error.localizedDescription)
+        var sentChannels: [String] = []
+        var failedChannels: [String] = []
+
+        if !recipient.isEmpty {
+            do {
+                try await IMessageNotifier.send(message: message, to: recipient)
+                sentChannels.append("iMessage")
+            } catch {
+                failedChannels.append("iMessage: \(error.localizedDescription)")
+            }
+        }
+
+        if !barkEndpoint.isEmpty {
+            do {
+                try await BarkNotifier.send(title: title, body: message, endpoint: barkEndpoint)
+                sentChannels.append("Bark")
+            } catch {
+                failedChannels.append("Bark: \(error.localizedDescription)")
+            }
+        }
+
+        if failedChannels.isEmpty, !sentChannels.isEmpty {
+            lastCommandStatus = AppText.lowBatteryNotificationSent(threshold: threshold, channels: sentChannels)
+        } else if sentChannels.isEmpty {
+            lastCommandStatus = AppText.lowBatteryNotificationFailed(failedChannels.joined(separator: " / "))
+        } else {
+            let detail = failedChannels.joined(separator: " / ")
+            lastCommandStatus = AppText.lowBatteryNotificationFailed(detail)
         }
     }
 

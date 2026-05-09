@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        configureApplicationMenu()
 
         let state = AppState()
         appState = state
@@ -37,6 +38,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(appState: state)
         state.start()
     }
+
+    private func configureApplicationMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            NSMenuItem(
+                title: AppText.quit,
+                action: #selector(NSApplication.terminate(_:)),
+                keyEquivalent: "q"
+            )
+        )
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: AppText.edit)
+        editMenu.addItem(NSMenuItem(title: AppText.cut, action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: AppText.copy, action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: AppText.paste, action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(.separator())
+        editMenu.addItem(
+            NSMenuItem(
+                title: AppText.selectAll,
+                action: #selector(NSStandardKeyBindingResponding.selectAll(_:)),
+                keyEquivalent: "a"
+            )
+        )
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApp.mainMenu = mainMenu
+    }
 }
 
 @MainActor
@@ -45,6 +80,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
     private var aboutWindowController: AboutWindowController?
+    private var lowBatterySettingsWindowController: LowBatterySettingsWindowController?
+    private var shortcutSettingsWindowController: ShortcutSettingsWindowController?
     private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
@@ -116,38 +153,56 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        let batteryItem = NSMenuItem(
+        let batteryItem = NSMenuItem()
+        batteryItem.view = MenuToggleRowView(
             title: AppText.allowBatteryServerMode,
-            action: #selector(toggleBatteryServerMode),
-            keyEquivalent: ""
+            isOn: appState.allowBatteryServerMode,
+            isToggleEnabled: !appState.isCommandRunning,
+            target: self,
+            toggleAction: #selector(toggleBatteryServerMode(_:))
         )
-        batteryItem.target = self
-        batteryItem.state = appState.allowBatteryServerMode ? .on : .off
-        batteryItem.isEnabled = !appState.isCommandRunning
         menu.addItem(batteryItem)
 
-        let lowBatteryNotificationsItem = NSMenuItem(
+        let lowBatteryItem = NSMenuItem()
+        lowBatteryItem.view = MenuToggleRowView(
             title: AppText.lowBatteryNotifications,
-            action: #selector(toggleLowBatteryNotifications),
-            keyEquivalent: ""
+            isOn: appState.lowBatteryNotificationsEnabled,
+            isToggleEnabled: appState.lowBatteryNotificationsEnabled
+                || AppState.canEnableLowBatteryNotifications(),
+            tooltip: AppText.lowBatteryNotificationsRequireTest,
+            settingsButtonTitle: AppText.configureLowBatteryNotifications,
+            target: self,
+            toggleAction: #selector(toggleLowBatteryNotifications(_:)),
+            settingsAction: #selector(showLowBatterySettings(_:))
         )
-        lowBatteryNotificationsItem.target = self
-        lowBatteryNotificationsItem.state = appState.lowBatteryNotificationsEnabled ? .on : .off
-        menu.addItem(lowBatteryNotificationsItem)
+        menu.addItem(lowBatteryItem)
 
-        let launchItem = NSMenuItem(
-            title: AppText.launchAtLogin,
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
+        let shortcutsItem = NSMenuItem()
+        shortcutsItem.view = MenuToggleRowView(
+            title: AppText.enableShortcuts,
+            isOn: appState.hotKeysEnabled,
+            isToggleEnabled: true,
+            settingsButtonTitle: AppText.configureShortcuts,
+            target: self,
+            toggleAction: #selector(toggleHotKeys(_:)),
+            settingsAction: #selector(showShortcutSettings(_:))
         )
-        launchItem.target = self
-        launchItem.state = appState.launchAtLoginEnabled ? .on : .off
-        launchItem.isEnabled = appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging
-        menu.addItem(launchItem)
+        menu.addItem(shortcutsItem)
+
+        let launchAtLoginItem = NSMenuItem()
+        launchAtLoginItem.view = MenuToggleRowView(
+            title: AppText.launchAtLogin,
+            isOn: appState.launchAtLoginEnabled,
+            isToggleEnabled: appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging,
+            tooltip: appState.launchAtLoginSupported ? nil : AppText.launchAtLoginUnsupported,
+            target: self,
+            toggleAction: #selector(toggleLaunchAtLogin(_:))
+        )
+        menu.addItem(launchAtLoginItem)
 
         menu.addItem(.separator())
 
-        let aboutItem = NSMenuItem(title: AppText.aboutApp, action: #selector(showAbout), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: AppText.aboutApplication, action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
 
@@ -174,21 +229,59 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func toggleBatteryServerMode() {
+    @objc private func toggleBatteryServerMode(_ sender: Any?) {
         appState.toggleBatteryServerMode()
+        menu.cancelTracking()
     }
 
-    @objc private func toggleLowBatteryNotifications() {
+    @objc private func toggleLowBatteryNotifications(_ sender: Any?) {
         appState.toggleLowBatteryNotifications()
+        menu.cancelTracking()
     }
 
-    @objc private func toggleLaunchAtLogin() {
+    @objc private func toggleHotKeys(_ sender: Any?) {
+        appState.toggleHotKeysEnabled()
+        menu.cancelTracking()
+    }
+
+    @objc private func toggleLaunchAtLogin(_ sender: Any?) {
         appState.setLaunchAtLoginEnabled(!appState.launchAtLoginEnabled)
+        menu.cancelTracking()
+    }
+
+    @objc private func showLowBatterySettings(_ sender: Any?) {
+        menu.cancelTracking()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            if self.lowBatterySettingsWindowController == nil {
+                self.lowBatterySettingsWindowController = LowBatterySettingsWindowController(appState: self.appState)
+            }
+            self.lowBatterySettingsWindowController?.show()
+        }
+    }
+
+    @objc private func showShortcutSettings(_ sender: Any?) {
+        menu.cancelTracking()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            if self.shortcutSettingsWindowController == nil {
+                self.shortcutSettingsWindowController = ShortcutSettingsWindowController()
+            }
+            self.shortcutSettingsWindowController?.show()
+        }
     }
 
     @objc private func showAbout() {
         if aboutWindowController == nil {
-            aboutWindowController = AboutWindowController()
+            aboutWindowController = AboutWindowController(appState: appState)
         }
 
         aboutWindowController?.show()
@@ -200,6 +293,102 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 NSApplication.shared.terminate(nil)
             }
         }
+    }
+}
+
+private final class MenuToggleRowView: NSView {
+    init(
+        title: String,
+        isOn: Bool,
+        isToggleEnabled: Bool,
+        tooltip: String? = nil,
+        settingsButtonTitle: String? = nil,
+        target: AnyObject,
+        toggleAction: Selector,
+        settingsAction: Selector? = nil
+    ) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 30))
+
+        let checkmarkLabel = NSTextField(labelWithString: isOn ? "✓" : "")
+        checkmarkLabel.alignment = .center
+        checkmarkLabel.font = NSFont.menuFont(ofSize: 0)
+        checkmarkLabel.textColor = isToggleEnabled ? .labelColor : .disabledControlTextColor
+        checkmarkLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.textColor = isToggleEnabled ? .labelColor : .disabledControlTextColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let toggleOverlayButton = NSButton()
+        toggleOverlayButton.isBordered = false
+        toggleOverlayButton.isTransparent = true
+        toggleOverlayButton.title = ""
+        toggleOverlayButton.target = target
+        toggleOverlayButton.action = toggleAction
+        toggleOverlayButton.isEnabled = isToggleEnabled
+        toggleOverlayButton.toolTip = isToggleEnabled ? nil : tooltip
+        toggleOverlayButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let settingsButton: NSButton?
+        if let settingsButtonTitle, let settingsAction {
+            let button = NSButton(title: settingsButtonTitle, target: target, action: settingsAction)
+            button.font = NSFont.systemFont(ofSize: 11)
+            button.controlSize = .small
+            button.bezelStyle = .rounded
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            settingsButton = button
+        } else {
+            settingsButton = nil
+        }
+
+        addSubview(checkmarkLabel)
+        addSubview(titleLabel)
+        addSubview(toggleOverlayButton)
+        if let settingsButton {
+            addSubview(settingsButton)
+        }
+
+        var constraints: [NSLayoutConstraint] = [
+            heightAnchor.constraint(equalToConstant: 30),
+            widthAnchor.constraint(equalToConstant: 280),
+
+            checkmarkLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            checkmarkLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            checkmarkLabel.widthAnchor.constraint(equalToConstant: 18),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 46),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            toggleOverlayButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            toggleOverlayButton.topAnchor.constraint(equalTo: topAnchor),
+            toggleOverlayButton.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ]
+
+        if let settingsButton {
+            constraints += [
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -8),
+                toggleOverlayButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -6),
+                settingsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+                settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                settingsButton.widthAnchor.constraint(equalToConstant: 64)
+            ]
+        } else {
+            constraints += [
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+                toggleOverlayButton.trailingAnchor.constraint(equalTo: trailingAnchor)
+            ]
+        }
+
+        NSLayoutConstraint.activate(constraints)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
     }
 }
 

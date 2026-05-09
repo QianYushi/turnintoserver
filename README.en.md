@@ -24,7 +24,8 @@ I built it because I wanted to use a MacBook as a small temporary server. Most k
 - Runs on power, pauses automatically on battery.
 - Resumes automatically when power is connected again.
 - Can optionally keep running on battery.
-- Can send low battery iMessage alerts while running on battery.
+- Can send low battery alerts through iMessage or Bark while running on battery.
+- Supports custom global keyboard shortcuts.
 - Supports launch at login.
 
 ## Good For
@@ -58,16 +59,19 @@ The main controls are:
 
 - `Start Server Mode`: keeps the Mac running while connected to power.
 - `Allow Server Mode on Battery`: keeps running after power is unplugged. Off by default.
-- `Low Battery iMessage Alerts`: sends iMessage alerts below 50% and 20% while running on battery.
+- `Low Battery Alerts`: sends alerts below 50% and 20% through the configured channels while running on battery; use the right-side Set Up button for iMessage / Bark.
+- `Enable Shortcuts`: turns global shortcuts on or off; use the right-side Set Up button to record the two shortcuts.
 - `Open at Login`: opens the app after login.
-- `About`: shows the version, checks for updates, configures the iMessage recipient, and sends a test message.
+- `About turnintoserver`: shows the version, developer, GitHub URL, and update checker.
 - `Quit`: restores the default sleep behavior before quitting.
 
 For normal use, turn on Server Mode and close the lid.
 
 If battery mode is off, unplugging power pauses Server Mode. Plugging power back in resumes it automatically.
 
-Low battery iMessage alerts need a recipient phone number or Apple ID email in About. Use Send Test to confirm it works. The first send may ask macOS for permission to let `turnintoserver` control Messages; allow it. This feature depends on Messages being signed in with a working iMessage account on the Mac.
+Low battery alerts need an iMessage or Bark channel from the Set Up button beside Low Battery Alerts, and the configured channels must test successfully before the switch can be enabled. Configure one channel to send through that channel, or configure both to send through both. The first iMessage send may ask macOS for permission to let `turnintoserver` control Messages; allow it. Bark accepts a push URL such as `https://api.day.app/your-key`.
+
+Check for Updates now downloads the new DMG directly, shows download progress, and then offers to restart the app to finish installing.
 
 ## About The Display
 
