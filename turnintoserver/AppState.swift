@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
         static let lastCommandStatus = "lastCommandStatus"
         static let lastKnownPowerSource = "lastKnownPowerSource"
         static let serverModeRequested = "serverModeRequested"
+        static let serverModeStartedAt = "serverModeStartedAt"
     }
 
     @Published private(set) var powerSource: PowerSource {
@@ -19,7 +20,11 @@ final class AppState: ObservableObject {
     }
 
     @Published private(set) var lidState: LidState = .unknown
-    @Published private(set) var serverModeActive = false
+    @Published private(set) var serverModeActive = false {
+        didSet {
+            updateServerModeRuntimeTracking()
+        }
+    }
     @Published private(set) var serverModeRequested = false {
         didSet {
             defaults.set(serverModeRequested, forKey: DefaultsKey.serverModeRequested)
@@ -32,6 +37,7 @@ final class AppState: ObservableObject {
     }
 
     @Published private(set) var isCommandRunning = false
+    @Published private(set) var serverModeRuntimeDisplay: String?
 
     @Published private(set) var allowBatteryServerMode: Bool {
         didSet {
@@ -52,6 +58,8 @@ final class AppState: ObservableObject {
     private var screensWakeObserver: NSObjectProtocol?
     private var didHandleBuiltInDisplayForClosedLid = false
     private var isBuiltInDisplayCommandRunning = false
+    private var serverModeStartedAt: Date?
+    private var runtimeTimer: Timer?
 
     init(
         defaults: UserDefaults = .standard,
@@ -74,6 +82,7 @@ final class AppState: ObservableObject {
         let savedSource = defaults.string(forKey: DefaultsKey.lastKnownPowerSource)
         powerSource = savedSource.flatMap(PowerSource.init(rawValue:)) ?? .unknown
         lastCommandStatus = AppText.notStarted
+        serverModeStartedAt = defaults.object(forKey: DefaultsKey.serverModeStartedAt) as? Date
 
         refreshLaunchAtLoginEnabled()
     }
@@ -93,11 +102,15 @@ final class AppState: ObservableObject {
     }
 
     var menuBarIconStyle: MenuBarIconStyle {
-        guard serverModeActive else {
-            return .idle
+        if serverModeActive {
+            return allowBatteryServerMode ? .serverModeBatteryAllowed : .serverModePowerOnly
         }
 
-        return allowBatteryServerMode ? .serverModeBatteryAllowed : .serverModePowerOnly
+        if isWaitingForPowerAdapter {
+            return .waitingForPowerAdapter
+        }
+
+        return .idle
     }
 
     var serverModeActionTitle: String {
@@ -122,6 +135,59 @@ final class AppState: ObservableObject {
         }
 
         return AppText.keepsRunningWithLidClosed
+    }
+
+    private func updateServerModeRuntimeTracking() {
+        guard serverModeActive else {
+            stopServerModeRuntimeTimer()
+            clearServerModeStartedAt()
+            updateServerModeRuntimeDisplay()
+            return
+        }
+
+        if serverModeStartedAt == nil {
+            setServerModeStartedAt(Date())
+        }
+
+        startServerModeRuntimeTimer()
+        updateServerModeRuntimeDisplay()
+    }
+
+    private func startServerModeRuntimeTimer() {
+        guard runtimeTimer == nil else {
+            return
+        }
+
+        runtimeTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateServerModeRuntimeDisplay()
+            }
+        }
+    }
+
+    private func stopServerModeRuntimeTimer() {
+        runtimeTimer?.invalidate()
+        runtimeTimer = nil
+    }
+
+    private func setServerModeStartedAt(_ date: Date) {
+        serverModeStartedAt = date
+        defaults.set(date, forKey: DefaultsKey.serverModeStartedAt)
+    }
+
+    private func clearServerModeStartedAt() {
+        serverModeStartedAt = nil
+        defaults.removeObject(forKey: DefaultsKey.serverModeStartedAt)
+    }
+
+    private func updateServerModeRuntimeDisplay() {
+        guard serverModeActive, let serverModeStartedAt else {
+            serverModeRuntimeDisplay = nil
+            return
+        }
+
+        let elapsedSeconds = max(0, Int(Date().timeIntervalSince(serverModeStartedAt)))
+        serverModeRuntimeDisplay = AppText.serverModeRuntime(totalMinutes: elapsedSeconds / 60)
     }
 
     private var isWaitingForPowerAdapter: Bool {

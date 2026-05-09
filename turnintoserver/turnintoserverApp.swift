@@ -60,10 +60,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func observeAppState() {
-        Publishers.CombineLatest3(
+        Publishers.CombineLatest4(
             appState.$serverModeActive,
+            appState.$serverModeRequested,
             appState.$allowBatteryServerMode,
-            appState.$isCommandRunning
+            appState.$powerSource
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] _ in
@@ -96,6 +97,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         let statusItem = NSMenuItem(title: appState.statusSummaryDisplay, action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         menu.addItem(statusItem)
+
+        if let runtimeDisplay = appState.serverModeRuntimeDisplay {
+            let runtimeItem = NSMenuItem(title: runtimeDisplay, action: nil, keyEquivalent: "")
+            runtimeItem.isEnabled = false
+            menu.addItem(runtimeItem)
+        }
 
         menu.addItem(.separator())
 
@@ -172,6 +179,8 @@ private enum MenuBarStatusIconRenderer {
             image?.size = NSSize(width: 18, height: 18)
             image?.isTemplate = true
             return image
+        case .waitingForPowerAdapter:
+            return statusDot(color: .systemOrange, text: "S")
         case .serverModePowerOnly:
             return statusDot(color: .systemGreen, text: "S")
         case .serverModeBatteryAllowed:
@@ -183,6 +192,8 @@ private enum MenuBarStatusIconRenderer {
         switch style {
         case .idle:
             return ""
+        case .waitingForPowerAdapter:
+            return "ON"
         case .serverModePowerOnly:
             return "ON"
         case .serverModeBatteryAllowed:

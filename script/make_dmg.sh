@@ -7,6 +7,7 @@ TEAM_ID="G79WZ47SUC"
 DEVELOPER_ID_IDENTITY="Developer ID Application: Yushi Qian ($TEAM_ID)"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="$ROOT_DIR/$APP_NAME.app"
+CLEAN_APP_BUNDLE=""
 DMG_PATH="$ROOT_DIR/$APP_NAME.dmg"
 STAGING_DIR=""
 RW_DMG=""
@@ -40,6 +41,8 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
 fi
 
 cd "$ROOT_DIR"
+STAGING_DIR="$(/usr/bin/mktemp -d "$TMPDIR/turnintoserver-dmg.XXXXXX")"
+CLEAN_APP_BUNDLE="$STAGING_DIR/$APP_NAME.app"
 
 clean_app_metadata() {
   /usr/bin/SetFile -a b "$APP_BUNDLE" 2>/dev/null || true
@@ -51,8 +54,11 @@ clean_app_metadata() {
 
 for attempt in 1 2 3; do
   clean_app_metadata
+  /bin/rm -rf "$CLEAN_APP_BUNDLE"
+  /usr/bin/ditto --norsrc --noextattr "$APP_BUNDLE" "$CLEAN_APP_BUNDLE"
+  /usr/bin/xattr -cr "$CLEAN_APP_BUNDLE"
 
-  if /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"; then
+  if /usr/bin/codesign --verify --deep --strict --verbose=2 "$CLEAN_APP_BUNDLE"; then
     break
   fi
 
@@ -63,7 +69,6 @@ for attempt in 1 2 3; do
   sleep 1
 done
 
-STAGING_DIR="$(/usr/bin/mktemp -d "$TMPDIR/turnintoserver-dmg.XXXXXX")"
 RW_DMG="$STAGING_DIR/$APP_NAME-rw.dmg"
 MOUNT_POINT="/Volumes/$VOL_NAME"
 BACKGROUND_DIR="$STAGING_DIR/background"
@@ -187,11 +192,11 @@ if [[ -z "$DEVICE" || ! -d "$MOUNT_POINT" ]]; then
   exit 1
 fi
 
-/usr/bin/ditto --norsrc --noextattr "$APP_BUNDLE" "$MOUNT_POINT/$APP_NAME.app"
+/usr/bin/ditto --norsrc --noextattr "$CLEAN_APP_BUNDLE" "$MOUNT_POINT/$APP_NAME.app"
 /bin/ln -s /Applications "$MOUNT_POINT/Applications"
 /bin/mkdir -p "$MOUNT_POINT/.background"
 /bin/cp "$BACKGROUND_IMAGE" "$MOUNT_POINT/.background/background.png"
-/bin/cp "$APP_BUNDLE/Contents/Resources/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
+/bin/cp "$CLEAN_APP_BUNDLE/Contents/Resources/AppIcon.icns" "$MOUNT_POINT/.VolumeIcon.icns"
 /usr/bin/SetFile -a C "$MOUNT_POINT" 2>/dev/null || true
 /usr/bin/SetFile -a V "$MOUNT_POINT/.background" "$MOUNT_POINT/.VolumeIcon.icns" 2>/dev/null || true
 

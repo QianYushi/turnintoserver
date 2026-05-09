@@ -16,6 +16,34 @@ enum AppText {
         )
     }
 
+    static func serverModeRuntime(totalMinutes: Int) -> String {
+        let days = totalMinutes / (24 * 60)
+        let hours = (totalMinutes % (24 * 60)) / 60
+        let minutes = totalMinutes % 60
+
+        if isChinesePreferred {
+            var parts: [String] = []
+            if days > 0 {
+                parts.append("\(days)天")
+            }
+            if hours > 0 {
+                parts.append("\(hours)小时")
+            }
+            parts.append("\(minutes)分钟")
+            return "已经运行" + parts.joined()
+        }
+
+        var parts: [String] = []
+        if days > 0 {
+            parts.append("\(days)d")
+        }
+        if hours > 0 {
+            parts.append("\(hours)h")
+        }
+        parts.append("\(minutes)m")
+        return "Running for " + parts.joined(separator: " ")
+    }
+
     static var startServerMode: String {
         localized(chinese: "启动 Server 模式", english: "Start Server Mode")
     }
@@ -116,6 +144,7 @@ enum LidState: String, Codable, Equatable {
 
 enum MenuBarIconStyle: Equatable {
     case idle
+    case waitingForPowerAdapter
     case serverModePowerOnly
     case serverModeBatteryAllowed
 }

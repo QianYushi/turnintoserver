@@ -8,18 +8,18 @@
 
 Close the lid.  
 Keep the Mac running.  
-Let the display go dark.
+Turn the built-in display to zero brightness.
 
 `turnintoserver` is a small macOS menu bar utility.
 
-Plug in your MacBook, turn on Server Mode, and close the lid. SSH, remote desktop, development servers, and local network services can keep running. At the same time, the built-in MacBook display is dimmed, so the screen hidden behind the lid does not stay lit for no reason.
+Plug in your MacBook, turn on Server Mode, and close the lid. SSH, remote desktop, development servers, and local network services can keep running. At the same time, it tries to set only the built-in MacBook display to zero brightness, so the screen hidden behind the lid no longer emits light.
 
 I built it because I wanted to use a MacBook as a small temporary server. Most keep-awake apps handle the sleep part, but not the closed-lid display part.
 
 ## Main Features
 
 - Keeps the Mac running after the lid is closed.
-- Dims the built-in display when the lid closes.
+- Sets the built-in display to zero brightness when the lid closes.
 - Does not intentionally turn off external monitors.
 - Runs on power, pauses automatically on battery.
 - Resumes automatically when power is connected again.
@@ -68,13 +68,13 @@ If battery mode is off, unplugging power pauses Server Mode. Plugging power back
 
 `turnintoserver` is not only about preventing sleep.
 
-It also cares about the built-in display after the lid is closed. When the lid closes, it tries to dim only the MacBook display, instead of turning off every display. External monitors are not intentionally blanked, and the hidden built-in screen does not need to stay lit.
+It also cares about the built-in display after the lid is closed. When the lid closes, it tries to set only the MacBook display to zero brightness, instead of turning off every display. External monitors are not intentionally blanked, and the hidden built-in screen no longer emits light.
 
 ## Safety
 
 Do not keep a closed MacBook running inside a bag, drawer, or any poorly ventilated space.
 
-Use it plugged in, on a desk, with normal airflow. A dark display reduces unnecessary light and heat, but it is not a replacement for cooling.
+Use it plugged in, on a desk, with normal airflow. Setting the built-in display to zero brightness reduces unnecessary light, heat, and screen wear from that panel, but it is not a replacement for cooling.
 
 ## Requirements
 
