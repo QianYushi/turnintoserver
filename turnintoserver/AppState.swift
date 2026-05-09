@@ -270,12 +270,58 @@ final class AppState: ObservableObject {
     }
 
     func toggleServerMode() async {
+        guard !isCommandRunning else {
+            lastCommandStatus = "已有命令执行中"
+            return
+        }
+
         if serverModeRequested || serverModeActive {
+            if await needsClosedLidStopConfirmation(),
+               !confirmStopServerModeForClosedLidWithoutExternalDisplay() {
+                lastCommandStatus = "关闭 Server 模式已取消"
+                return
+            }
+
             await disableServerMode()
         } else {
             serverModeRequested = true
             await reconcileServerMode()
         }
+    }
+
+    private func needsClosedLidStopConfirmation() async -> Bool {
+        guard serverModeActive else {
+            return false
+        }
+
+        let currentState = await currentLidState()
+        guard currentState == .closed else {
+            return false
+        }
+
+        return !BuiltInDisplayDimmer.hasOnlineExternalDisplay()
+    }
+
+    private func confirmStopServerModeForClosedLidWithoutExternalDisplay() -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = AppText.stopServerModeConfirmationTitle
+        alert.informativeText = AppText.stopServerModeConfirmationMessage
+        alert.addButton(withTitle: AppText.stopServerModeConfirmationContinue)
+        alert.addButton(withTitle: AppText.cancel)
+
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    func toggleBatteryServerMode() {
+        guard !isCommandRunning else {
+            lastCommandStatus = "已有命令执行中"
+            return
+        }
+
+        setAllowBatteryServerMode(!allowBatteryServerMode)
     }
 
     func prepareForQuit() async -> Bool {

@@ -90,7 +90,15 @@ final class BuiltInDisplayDimmer {
         return .failure(lastFailure ?? "未能恢复内建屏亮度")
     }
 
+    static func hasOnlineExternalDisplay() -> Bool {
+        onlineDisplays().contains { CGDisplayIsBuiltin($0) == 0 }
+    }
+
     private static func onlineBuiltInDisplays() -> [CGDirectDisplayID] {
+        onlineDisplays().filter { CGDisplayIsBuiltin($0) != 0 }
+    }
+
+    private static func onlineDisplays() -> [CGDirectDisplayID] {
         let maxDisplays: UInt32 = 16
         var displays = [CGDirectDisplayID](repeating: 0, count: Int(maxDisplays))
         var displayCount: UInt32 = 0
@@ -99,9 +107,7 @@ final class BuiltInDisplayDimmer {
             return []
         }
 
-        return displays
-            .prefix(Int(displayCount))
-            .filter { CGDisplayIsBuiltin($0) != 0 }
+        return Array(displays.prefix(Int(displayCount)))
     }
 
     private static func loadDisplayServices() -> DisplayServices? {

@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
+    private var hotKeyManager: HotKeyManager?
     private var statusItemController: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -12,6 +13,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let state = AppState()
         appState = state
+        hotKeyManager = HotKeyManager(
+            onToggleServerMode: {
+                await state.toggleServerMode()
+            },
+            onToggleBatteryServerMode: {
+                state.toggleBatteryServerMode()
+            }
+        )
+        hotKeyManager?.start()
         statusItemController = StatusItemController(appState: state)
         state.start()
     }
@@ -34,6 +44,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let appState: AppState
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
+    private var aboutWindowController: AboutWindowController?
     private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
@@ -128,6 +139,10 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        let aboutItem = NSMenuItem(title: AppText.aboutApp, action: #selector(showAbout), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
         let quitItem = NSMenuItem(title: AppText.quit, action: #selector(quit), keyEquivalent: "")
         quitItem.target = self
         quitItem.isEnabled = !appState.isCommandRunning
@@ -152,11 +167,19 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleBatteryServerMode() {
-        appState.setAllowBatteryServerMode(!appState.allowBatteryServerMode)
+        appState.toggleBatteryServerMode()
     }
 
     @objc private func toggleLaunchAtLogin() {
         appState.setLaunchAtLoginEnabled(!appState.launchAtLoginEnabled)
+    }
+
+    @objc private func showAbout() {
+        if aboutWindowController == nil {
+            aboutWindowController = AboutWindowController()
+        }
+
+        aboutWindowController?.show()
     }
 
     @objc private func quit() {

@@ -60,8 +60,111 @@ enum AppText {
         localized(chinese: "开机自动启动", english: "Open at Login")
     }
 
+    static var aboutApp: String {
+        localized(chinese: "关于应用", english: "About")
+    }
+
     static var quit: String {
         localized(chinese: "退出", english: "Quit")
+    }
+
+    static var cancel: String {
+        localized(chinese: "取消", english: "Cancel")
+    }
+
+    static var stopServerModeConfirmationTitle: String {
+        localized(chinese: "确认关闭 Server Mode？", english: "Turn off Server Mode?")
+    }
+
+    static var stopServerModeConfirmationMessage: String {
+        localized(
+            chinese: "当前检测到 MacBook 已合盖，并且没有外接显示器。关闭 Server Mode 后，这台 Mac 可能会进入睡眠，远程连接可能会断开。",
+            english: "This MacBook appears to be closed with no external display connected. Turning off Server Mode may put this Mac to sleep and disconnect remote sessions."
+        )
+    }
+
+    static var stopServerModeConfirmationContinue: String {
+        localized(chinese: "继续关闭", english: "Turn Off")
+    }
+
+    static func currentVersion(_ version: String) -> String {
+        localized(chinese: "当前版本：\(version)", english: "Current version: \(version)")
+    }
+
+    static func developer(_ name: String) -> String {
+        localized(chinese: "开发者：\(name)", english: "Developer: \(name)")
+    }
+
+    static var githubPrefix: String {
+        "GitHub:"
+    }
+
+    static var githubURLDisplay: String {
+        "https://github.com/QianYushi/turnintoserver"
+    }
+
+    static var shortcutHintsTitle: String {
+        localized(chinese: "快捷键", english: "Shortcuts")
+    }
+
+    static var serverModeShortcutHint: String {
+        localized(chinese: "⌃⌥⌘O：切换 Server Mode", english: "⌃⌥⌘O: Toggle Server Mode")
+    }
+
+    static var batteryModeShortcutHint: String {
+        localized(chinese: "⌃⌥⌘P：切换电池模式", english: "⌃⌥⌘P: Toggle Battery Mode")
+    }
+
+    static var checkForUpdates: String {
+        localized(chinese: "检查更新", english: "Check for Updates")
+    }
+
+    static var updateIdle: String {
+        localized(chinese: "可以检查 GitHub Release 里的最新版。", english: "Check the latest GitHub release.")
+    }
+
+    static var checkingForUpdates: String {
+        localized(chinese: "正在检查更新…", english: "Checking for updates...")
+    }
+
+    static var alreadyUpToDate: String {
+        localized(chinese: "当前已经是最新版本。", english: "You are already on the latest version.")
+    }
+
+    static func updateAvailable(_ version: String) -> String {
+        localized(chinese: "发现新版本 \(version)，可以下载最新 DMG。", english: "Version \(version) is available.")
+    }
+
+    static func noDMGFound(_ version: String) -> String {
+        localized(chinese: "发现新版本 \(version)，但没有找到 DMG 文件。", english: "Version \(version) is available, but no DMG was found.")
+    }
+
+    static var downloadLatestDMG: String {
+        localized(chinese: "下载最新 DMG", english: "Download Latest DMG")
+    }
+
+    static var downloadingLatestDMG: String {
+        localized(chinese: "正在下载最新 DMG…", english: "Downloading latest DMG...")
+    }
+
+    static func downloadFinished(_ fileName: String) -> String {
+        localized(chinese: "已下载到“下载”文件夹：\(fileName)", english: "Downloaded to Downloads: \(fileName)")
+    }
+
+    static func updateCheckFailed(_ message: String) -> String {
+        localized(chinese: "检查更新失败：\(message)", english: "Update check failed: \(message)")
+    }
+
+    static func downloadFailed(_ message: String) -> String {
+        localized(chinese: "下载失败：\(message)", english: "Download failed: \(message)")
+    }
+
+    static var updateServerUnavailable: String {
+        localized(chinese: "更新服务器暂时不可用", english: "The update server is unavailable")
+    }
+
+    static var unknownVersion: String {
+        localized(chinese: "未知版本", english: "Unknown")
     }
 
     static var serverModeOnBatteryAllowed: String {

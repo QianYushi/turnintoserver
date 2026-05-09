@@ -6,9 +6,9 @@ VOL_NAME="turnintoserver"
 TEAM_ID="G79WZ47SUC"
 DEVELOPER_ID_IDENTITY="Developer ID Application: Yushi Qian ($TEAM_ID)"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/$APP_NAME.app"
+APP_BUNDLE="${APP_BUNDLE:-$ROOT_DIR/$APP_NAME.app}"
 CLEAN_APP_BUNDLE=""
-DMG_PATH="$ROOT_DIR/$APP_NAME.dmg"
+DMG_PATH="${DMG_PATH:-$ROOT_DIR/$APP_NAME.dmg}"
 STAGING_DIR=""
 RW_DMG=""
 DEVICE=""
@@ -57,6 +57,12 @@ for attempt in 1 2 3; do
   /bin/rm -rf "$CLEAN_APP_BUNDLE"
   /usr/bin/ditto --norsrc --noextattr "$APP_BUNDLE" "$CLEAN_APP_BUNDLE"
   /usr/bin/xattr -cr "$CLEAN_APP_BUNDLE"
+  /usr/bin/codesign \
+    --force \
+    --options runtime \
+    --timestamp \
+    --sign "$DEVELOPER_ID_IDENTITY" \
+    "$CLEAN_APP_BUNDLE"
 
   if /usr/bin/codesign --verify --deep --strict --verbose=2 "$CLEAN_APP_BUNDLE"; then
     break
