@@ -199,6 +199,10 @@ enum AppText {
         localized(chinese: "开机启动状态未知", english: "Open at Login status unknown")
     }
 
+    static var launchAtLoginUnsupported: String {
+        localized(chinese: "开机自动启动需要 macOS 13 或更高版本", english: "Open at Login requires macOS 13 or later")
+    }
+
     static func localized(chinese: String, english: String) -> String {
         isChinesePreferred ? chinese : english
     }

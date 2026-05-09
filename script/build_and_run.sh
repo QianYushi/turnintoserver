@@ -51,6 +51,10 @@ XCODEBUILD_ARGS=(
   -derivedDataPath "$DERIVED_DATA_DIR"
 )
 
+if [[ "$CONFIGURATION" == "Release" ]]; then
+  XCODEBUILD_ARGS+=(-destination "generic/platform=macOS")
+fi
+
 if [[ ${#EXTRA_BUILD_SETTINGS[@]} -gt 0 ]]; then
   XCODEBUILD_ARGS+=("${EXTRA_BUILD_SETTINGS[@]}")
 fi

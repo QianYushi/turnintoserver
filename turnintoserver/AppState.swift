@@ -125,6 +125,10 @@ final class AppState: ObservableObject {
         serverModeRequested || serverModeActive ? "power" : "server.rack"
     }
 
+    var launchAtLoginSupported: Bool {
+        launchAtLoginManager.isSupported
+    }
+
     var statusSummaryDisplay: String {
         guard serverModeRequested else {
             return AppText.notStarted
@@ -231,6 +235,12 @@ final class AppState: ObservableObject {
     }
 
     func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
+        guard launchAtLoginSupported else {
+            launchAtLoginEnabled = false
+            lastCommandStatus = AppText.launchAtLoginUnsupported
+            return
+        }
+
         guard !isLaunchAtLoginChanging else {
             return
         }
@@ -643,15 +653,29 @@ final class AppState: ObservableObject {
 }
 
 struct LaunchAtLoginManager {
-    private var status: SMAppService.Status {
-        SMAppService.mainApp.status
+    var isSupported: Bool {
+        if #available(macOS 13.0, *) {
+            return true
+        }
+
+        return false
     }
 
     var isEnabled: Bool {
-        status == .enabled || status == .requiresApproval
+        guard #available(macOS 13.0, *) else {
+            return false
+        }
+
+        let status = SMAppService.mainApp.status
+        return status == .enabled || status == .requiresApproval
     }
 
     var statusMessage: String {
+        guard #available(macOS 13.0, *) else {
+            return AppText.launchAtLoginUnsupported
+        }
+
+        let status = SMAppService.mainApp.status
         switch status {
         case .enabled:
             return AppText.launchAtLoginOn
@@ -667,6 +691,11 @@ struct LaunchAtLoginManager {
     }
 
     var attentionMessage: String? {
+        guard #available(macOS 13.0, *) else {
+            return nil
+        }
+
+        let status = SMAppService.mainApp.status
         switch status {
         case .requiresApproval, .notFound:
             return statusMessage
@@ -678,6 +707,10 @@ struct LaunchAtLoginManager {
     }
 
     func setEnabled(_ isEnabled: Bool) throws {
+        guard #available(macOS 13.0, *) else {
+            return
+        }
+
         let service = SMAppService.mainApp
 
         if isEnabled {

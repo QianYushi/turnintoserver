@@ -1,7 +1,7 @@
 import AppKit
 import Combine
-import SwiftUI
 
+@main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
@@ -24,18 +24,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyManager?.start()
         statusItemController = StatusItemController(appState: state)
         state.start()
-    }
-}
-
-@main
-@MainActor
-struct turnintoserverApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        Settings {
-            EmptyView()
-        }
     }
 }
 
@@ -98,9 +86,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: ""
         )
         serverModeItem.target = self
-        serverModeItem.image = NSImage(
-            systemSymbolName: appState.serverModeActionSystemImage,
-            accessibilityDescription: nil
+        serverModeItem.image = MenuBarStatusIconRenderer.systemImage(
+            named: appState.serverModeActionSystemImage
         )
         serverModeItem.isEnabled = !appState.isCommandRunning
         menu.addItem(serverModeItem)
@@ -134,7 +121,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         )
         launchItem.target = self
         launchItem.state = appState.launchAtLoginEnabled ? .on : .off
-        launchItem.isEnabled = !appState.isLaunchAtLoginChanging
+        launchItem.isEnabled = appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging
         menu.addItem(launchItem)
 
         menu.addItem(.separator())
@@ -195,10 +182,7 @@ private enum MenuBarStatusIconRenderer {
     static func image(for style: MenuBarIconStyle) -> NSImage? {
         switch style {
         case .idle:
-            let image = (NSImage(named: "MenuBarIcon") ?? NSImage(
-                systemSymbolName: "server.rack",
-                accessibilityDescription: nil
-            ))?.copy() as? NSImage
+            let image = (NSImage(named: "MenuBarIcon") ?? systemImage(named: "server.rack"))?.copy() as? NSImage
             image?.size = NSSize(width: 18, height: 18)
             image?.isTemplate = true
             return image
@@ -209,6 +193,14 @@ private enum MenuBarStatusIconRenderer {
         case .serverModeBatteryAllowed:
             return statusDot(color: .systemRed, text: "B")
         }
+    }
+
+    static func systemImage(named name: String) -> NSImage? {
+        if #available(macOS 11.0, *) {
+            return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        }
+
+        return nil
     }
 
     static func title(for style: MenuBarIconStyle) -> String {

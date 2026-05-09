@@ -31,7 +31,12 @@ final class AboutWindowController: NSWindowController {
 }
 
 private struct AboutView: View {
-    @StateObject private var updateModel = AboutUpdateViewModel()
+    @ObservedObject private var updateModel: AboutUpdateViewModel
+
+    @MainActor
+    init() {
+        updateModel = AboutUpdateViewModel()
+    }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -45,7 +50,7 @@ private struct AboutView: View {
                     .font(.system(size: 20, weight: .semibold))
                 Text(AppText.currentVersion(AboutUpdateViewModel.currentVersionDisplay))
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -91,7 +96,7 @@ private struct AboutView: View {
 
                 Text(updateModel.statusText)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundColor(.secondary)
                     .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -185,7 +190,7 @@ private final class AboutUpdateViewModel: ObservableObject {
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.setValue("turnintoserver", forHTTPHeaderField: "User-Agent")
 
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.fetchData(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode) else {
                 statusText = AppText.updateCheckFailed(AppText.updateServerUnavailable)
@@ -227,7 +232,7 @@ private final class AboutUpdateViewModel: ObservableObject {
         }
 
         do {
-            let (temporaryURL, response) = try await URLSession.shared.download(from: latestDMGURL)
+            let (data, response) = try await Self.fetchData(for: URLRequest(url: latestDMGURL))
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode) else {
                 statusText = AppText.downloadFailed(AppText.updateServerUnavailable)
@@ -238,11 +243,30 @@ private final class AboutUpdateViewModel: ObservableObject {
                 originalFileName: latestDMGURL.lastPathComponent,
                 tagName: latestTagName
             )
-            try FileManager.default.moveItem(at: temporaryURL, to: destination)
+            try data.write(to: destination, options: .atomic)
             statusText = AppText.downloadFinished(destination.lastPathComponent)
             NSWorkspace.shared.activateFileViewerSelecting([destination])
         } catch {
             statusText = AppText.downloadFailed(error.localizedDescription)
+        }
+    }
+
+    private static func fetchData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                guard let data, let response else {
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                    return
+                }
+
+                continuation.resume(returning: (data, response))
+            }
+            .resume()
         }
     }
 
