@@ -2,6 +2,18 @@ import AppKit
 import Combine
 
 @main
+enum TurnIntoServerMain {
+    @MainActor
+    static func main() {
+        let application = NSApplication.shared
+        let appDelegate = AppDelegate()
+        application.delegate = appDelegate
+        withExtendedLifetime(appDelegate) {
+            application.run()
+        }
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
