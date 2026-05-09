@@ -38,6 +38,34 @@ final class PowerSourceMonitor {
         return await detectPowerSourceFromPmset()
     }
 
+    func detectBatteryPercentage() -> Int? {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else {
+            return nil
+        }
+
+        for source in sources {
+            guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any] else {
+                continue
+            }
+
+            if let type = description[kIOPSTypeKey as String] as? String,
+               type != kIOPSInternalBatteryType {
+                continue
+            }
+
+            guard let currentCapacity = description[kIOPSCurrentCapacityKey as String] as? Int,
+                  let maxCapacity = description[kIOPSMaxCapacityKey as String] as? Int,
+                  maxCapacity > 0 else {
+                continue
+            }
+
+            return min(100, max(0, Int((Double(currentCapacity) / Double(maxCapacity) * 100).rounded())))
+        }
+
+        return nil
+    }
+
     private func installPowerSourceNotification() {
         let context = Unmanaged.passUnretained(self).toOpaque()
         let unmanagedSource = IOPSNotificationCreateRunLoopSource({ context in

@@ -9,6 +9,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="${APP_BUNDLE:-$ROOT_DIR/$APP_NAME.app}"
 CLEAN_APP_BUNDLE=""
 DMG_PATH="${DMG_PATH:-$ROOT_DIR/$APP_NAME.dmg}"
+ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-$ROOT_DIR/$APP_NAME/$APP_NAME.entitlements}"
 STAGING_DIR=""
 RW_DMG=""
 DEVICE=""
@@ -57,12 +58,16 @@ for attempt in 1 2 3; do
   /bin/rm -rf "$CLEAN_APP_BUNDLE"
   /usr/bin/ditto --norsrc --noextattr "$APP_BUNDLE" "$CLEAN_APP_BUNDLE"
   /usr/bin/xattr -cr "$CLEAN_APP_BUNDLE"
-  /usr/bin/codesign \
-    --force \
-    --options runtime \
-    --timestamp \
-    --sign "$DEVELOPER_ID_IDENTITY" \
-    "$CLEAN_APP_BUNDLE"
+  CODESIGN_ARGS=(
+    --force
+    --options runtime
+    --timestamp
+    --sign "$DEVELOPER_ID_IDENTITY"
+  )
+  if [[ -f "$ENTITLEMENTS_PATH" ]]; then
+    CODESIGN_ARGS+=(--entitlements "$ENTITLEMENTS_PATH")
+  fi
+  /usr/bin/codesign "${CODESIGN_ARGS[@]}" "$CLEAN_APP_BUNDLE"
 
   if /usr/bin/codesign --verify --deep --strict --verbose=2 "$CLEAN_APP_BUNDLE"; then
     break
@@ -146,9 +151,9 @@ drawText(
     color: color(28, 34, 46)
 )
 drawText(
-    "Drag to Applications",
+    "拖到应用程序 / Drag to Applications",
     at: NSPoint(x: canvas.width / 2, y: 291),
-    font: NSFont.systemFont(ofSize: 14, weight: .regular),
+    font: NSFont.systemFont(ofSize: 13, weight: .regular),
     color: color(92, 101, 116)
 )
 

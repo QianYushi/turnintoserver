@@ -20,12 +20,12 @@ final class BuiltInDisplayDimmer {
 
     func dimBuiltInDisplays() -> PowerCommandResult {
         guard let services else {
-            return .failure("无法载入内建显示器控制")
+            return .failure(AppText.builtInDisplayControlUnavailable)
         }
 
         let displays = Self.onlineBuiltInDisplays()
         guard !displays.isEmpty else {
-            return .success("未检测到在线内建屏")
+            return .success(AppText.noOnlineBuiltInDisplay)
         }
 
         var changedCount = 0
@@ -35,7 +35,7 @@ final class BuiltInDisplayDimmer {
             var brightness: Float = 0
             let getResult = services.getBrightness(display, &brightness)
             guard getResult == 0 else {
-                lastFailure = "读取内建屏亮度失败：\(getResult)"
+                lastFailure = AppText.readBuiltInDisplayBrightnessFailed(getResult)
                 continue
             }
 
@@ -47,24 +47,24 @@ final class BuiltInDisplayDimmer {
             if setResult == 0 {
                 changedCount += 1
             } else {
-                lastFailure = "调暗内建屏失败：\(setResult)"
+                lastFailure = AppText.dimBuiltInDisplayFailed(setResult)
             }
         }
 
         if changedCount > 0 {
-            return .success("已调暗内建屏")
+            return .success(AppText.builtInDisplayDimmed)
         }
 
-        return .failure(lastFailure ?? "未能调暗内建屏")
+        return .failure(lastFailure ?? AppText.couldNotDimBuiltInDisplay)
     }
 
     func restoreBuiltInDisplays() -> PowerCommandResult {
         guard !savedBrightnessByDisplay.isEmpty else {
-            return .success("无需恢复内建屏亮度")
+            return .success(AppText.noBuiltInDisplayBrightnessRestoreNeeded)
         }
 
         guard let services else {
-            return .failure("无法载入内建显示器控制")
+            return .failure(AppText.builtInDisplayControlUnavailable)
         }
 
         var restoredCount = 0
@@ -77,17 +77,17 @@ final class BuiltInDisplayDimmer {
                 restoredCount += 1
             } else {
                 remainingBrightnessByDisplay[display] = brightness
-                lastFailure = "恢复内建屏亮度失败：\(setResult)"
+                lastFailure = AppText.restoreBuiltInDisplayBrightnessFailed(setResult)
             }
         }
 
         savedBrightnessByDisplay = remainingBrightnessByDisplay
 
         if restoredCount > 0 {
-            return .success("已恢复内建屏亮度")
+            return .success(AppText.builtInDisplayBrightnessRestored)
         }
 
-        return .failure(lastFailure ?? "未能恢复内建屏亮度")
+        return .failure(lastFailure ?? AppText.couldNotRestoreBuiltInDisplayBrightness)
     }
 
     static func hasOnlineExternalDisplay() -> Bool {

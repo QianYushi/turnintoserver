@@ -10,9 +10,9 @@ final class AboutWindowController: NSWindowController {
         window.title = AppText.aboutApp
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 420, height: 440)
-        window.contentMaxSize = NSSize(width: 420, height: 440)
-        window.setContentSize(NSSize(width: 420, height: 440))
+        window.contentMinSize = NSSize(width: 420, height: 540)
+        window.contentMaxSize = NSSize(width: 420, height: 540)
+        window.setContentSize(NSSize(width: 420, height: 540))
         window.center()
 
         super.init(window: window)
@@ -32,17 +32,19 @@ final class AboutWindowController: NSWindowController {
 
 private struct AboutView: View {
     @ObservedObject private var updateModel: AboutUpdateViewModel
+    @ObservedObject private var iMessageModel: IMessageSettingsViewModel
 
     @MainActor
     init() {
         updateModel = AboutUpdateViewModel()
+        iMessageModel = IMessageSettingsViewModel()
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 78, height: 78)
+                .frame(width: 72, height: 72)
                 .cornerRadius(16)
 
             VStack(spacing: 4) {
@@ -77,6 +79,29 @@ private struct AboutView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text(AppText.iMessageSettingsTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                TextField(AppText.iMessageRecipientPlaceholder, text: $iMessageModel.recipientAddress)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+
+                HStack(spacing: 10) {
+                    Button(AppText.sendTestMessage) {
+                        iMessageModel.sendTestMessage()
+                    }
+                    .disabled(iMessageModel.isSendingTest)
+
+                    Text(iMessageModel.statusText)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Button(AppText.checkForUpdates) {
@@ -104,7 +129,61 @@ private struct AboutView: View {
             Spacer(minLength: 0)
         }
         .padding(EdgeInsets(top: 24, leading: 26, bottom: 20, trailing: 26))
-        .frame(width: 420, height: 440)
+        .frame(width: 420, height: 540)
+    }
+}
+
+@MainActor
+private final class IMessageSettingsViewModel: ObservableObject {
+    @Published var recipientAddress: String {
+        didSet {
+            defaults.set(recipientAddress, forKey: AppDefaultsKey.iMessageRecipientAddress)
+        }
+    }
+
+    @Published var isSendingTest = false
+    @Published var statusText = AppText.iMessageSettingsIdle
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        recipientAddress = defaults.string(forKey: AppDefaultsKey.iMessageRecipientAddress) ?? ""
+    }
+
+    func sendTestMessage() {
+        Task {
+            await sendTestMessageAsync()
+        }
+    }
+
+    private func sendTestMessageAsync() async {
+        guard !isSendingTest else {
+            return
+        }
+
+        let recipient = recipientAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !recipient.isEmpty else {
+            statusText = AppText.iMessageRecipientMissing
+            return
+        }
+
+        isSendingTest = true
+        statusText = AppText.iMessageTestSending
+
+        defer {
+            isSendingTest = false
+        }
+
+        do {
+            try await IMessageNotifier.send(
+                message: AppText.iMessageTestMessage(macName: IMessageNotifier.defaultMacName),
+                to: recipient
+            )
+            statusText = AppText.iMessageTestSent
+        } catch {
+            statusText = AppText.iMessageTestFailed(error.localizedDescription)
+        }
     }
 }
 

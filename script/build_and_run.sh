@@ -30,6 +30,7 @@ APP_BUNDLE="$DERIVED_DATA_DIR/Build/Products/$CONFIGURATION/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 ROOT_APP_BUNDLE="$ROOT_DIR/$APP_NAME.app"
 ROOT_APP_BINARY="$ROOT_APP_BUNDLE/Contents/MacOS/$APP_NAME"
+ENTITLEMENTS_PATH="$ROOT_DIR/$APP_NAME/$APP_NAME.entitlements"
 
 cd "$ROOT_DIR"
 
@@ -72,12 +73,17 @@ if [[ "$CONFIGURATION" == "Release" ]]; then
     /usr/bin/xattr -d com.apple.FinderInfo "$ROOT_APP_BUNDLE" 2>/dev/null || true
     /usr/bin/xattr -d "com.apple.fileprovider.fpfs#P" "$ROOT_APP_BUNDLE" 2>/dev/null || true
 
-    if /usr/bin/codesign \
-      --force \
-      --options runtime \
-      --timestamp \
-      --sign "$DEVELOPER_ID_IDENTITY" \
-      "$ROOT_APP_BUNDLE"; then
+    CODESIGN_ARGS=(
+      --force
+      --options runtime
+      --timestamp
+      --sign "$DEVELOPER_ID_IDENTITY"
+    )
+    if [[ -f "$ENTITLEMENTS_PATH" ]]; then
+      CODESIGN_ARGS+=(--entitlements "$ENTITLEMENTS_PATH")
+    fi
+
+    if /usr/bin/codesign "${CODESIGN_ARGS[@]}" "$ROOT_APP_BUNDLE"; then
       break
     fi
 

@@ -126,6 +126,15 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         batteryItem.isEnabled = !appState.isCommandRunning
         menu.addItem(batteryItem)
 
+        let lowBatteryNotificationsItem = NSMenuItem(
+            title: AppText.lowBatteryNotifications,
+            action: #selector(toggleLowBatteryNotifications),
+            keyEquivalent: ""
+        )
+        lowBatteryNotificationsItem.target = self
+        lowBatteryNotificationsItem.state = appState.lowBatteryNotificationsEnabled ? .on : .off
+        menu.addItem(lowBatteryNotificationsItem)
+
         let launchItem = NSMenuItem(
             title: AppText.launchAtLogin,
             action: #selector(toggleLaunchAtLogin),
@@ -167,6 +176,10 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func toggleBatteryServerMode() {
         appState.toggleBatteryServerMode()
+    }
+
+    @objc private func toggleLowBatteryNotifications() {
+        appState.toggleLowBatteryNotifications()
     }
 
     @objc private func toggleLaunchAtLogin() {

@@ -23,11 +23,11 @@ final class PowerManager {
 
         switch powerSource {
         case .batteryPower:
-            return .success("已在电池供电下启动")
+            return .success(AppText.startedOnBatteryPower)
         case .acPower:
-            return .success("已在接电源下启动")
+            return .success(AppText.startedOnPowerAdapter)
         case .unknown:
-            return .success("已启动")
+            return .success(AppText.startedServerMode)
         }
     }
 
@@ -43,7 +43,7 @@ final class PowerManager {
             return result
         }
 
-        return .success("已恢复合盖睡眠")
+        return .success(AppText.restoredClosedLidSleep)
     }
 
     func dimBuiltInDisplayForClosedLid() -> PowerCommandResult {
@@ -150,7 +150,7 @@ final class PowerManager {
     @discardableResult
     private func startCaffeinate(powerSource: PowerSource) -> PowerCommandResult {
         if isServerModeActive {
-            return .success("Server 模式已在运行")
+            return .success(AppText.serverModeAlreadyRunning)
         }
 
         let process = Process()
@@ -168,14 +168,14 @@ final class PowerManager {
         do {
             try process.run()
         } catch {
-            return .failure("无法启动 caffeinate：\(error.localizedDescription)")
+            return .failure(AppText.caffeinateLaunchFailed(error.localizedDescription))
         }
 
         guard process.isRunning else {
             let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             let message = String(data: stderr, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return .failure(Self.shortFailureMessage(message ?? "caffeinate 已退出"))
+            return .failure(Self.shortFailureMessage(message ?? AppText.caffeinateExited))
         }
 
         caffeinateProcess = process
@@ -217,7 +217,7 @@ final class PowerManager {
 
     private static func shortFailureMessage(_ message: String) -> String {
         guard !message.isEmpty else {
-            return "命令执行失败"
+            return AppText.commandFailed
         }
 
         let firstLine = message.split(separator: "\n").first.map(String.init) ?? message

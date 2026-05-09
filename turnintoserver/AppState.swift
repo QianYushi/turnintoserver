@@ -23,6 +23,9 @@ final class AppState: ObservableObject {
     @Published private(set) var serverModeActive = false {
         didSet {
             updateServerModeRuntimeTracking()
+            Task { @MainActor in
+                await evaluateLowBatteryNotification()
+            }
         }
     }
     @Published private(set) var serverModeRequested = false {
@@ -48,6 +51,12 @@ final class AppState: ObservableObject {
     @Published private(set) var launchAtLoginEnabled = false
     @Published private(set) var isLaunchAtLoginChanging = false
 
+    @Published private(set) var lowBatteryNotificationsEnabled: Bool {
+        didSet {
+            defaults.set(lowBatteryNotificationsEnabled, forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
+        }
+    }
+
     private let defaults: UserDefaults
     private let monitor: PowerSourceMonitor
     private let lidMonitor: LidStateMonitor
@@ -60,6 +69,8 @@ final class AppState: ObservableObject {
     private var isBuiltInDisplayCommandRunning = false
     private var serverModeStartedAt: Date?
     private var runtimeTimer: Timer?
+    private var batteryNotificationTimer: Timer?
+    private var sentLowBatteryThresholds = Set<Int>()
 
     init(
         defaults: UserDefaults = .standard,
@@ -77,6 +88,7 @@ final class AppState: ObservableObject {
         defaults.removeObject(forKey: "serverModeActive")
         defaults.removeObject(forKey: "savedPowerSettingsSnapshot")
         allowBatteryServerMode = defaults.bool(forKey: DefaultsKey.allowBatteryServerMode)
+        lowBatteryNotificationsEnabled = defaults.bool(forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
         serverModeRequested = defaults.bool(forKey: DefaultsKey.serverModeRequested)
 
         let savedSource = defaults.string(forKey: DefaultsKey.lastKnownPowerSource)
@@ -205,6 +217,7 @@ final class AppState: ObservableObject {
 
         hasStarted = true
         startWakeObservers()
+        startBatteryNotificationTimer()
 
         monitor.start { [weak self] source in
             self?.handlePowerSourceUpdate(source)
@@ -225,12 +238,13 @@ final class AppState: ObservableObject {
         }
 
         allowBatteryServerMode = isEnabled
-        lastCommandStatus = isEnabled ? "电池供电已允许" : "电池供电已限制"
+        lastCommandStatus = isEnabled ? AppText.batteryPowerAllowed : AppText.batteryPowerRestricted
 
-        if serverModeRequested {
-            Task {
+        Task {
+            if serverModeRequested {
                 await reconcileServerMode()
             }
+            await evaluateLowBatteryNotification()
         }
     }
 
@@ -263,7 +277,7 @@ final class AppState: ObservableObject {
         } catch {
             launchAtLoginEnabled = previousEnabled
             refreshLaunchAtLoginEnabled()
-            lastCommandStatus = "开机启动失败：\(error.localizedDescription)"
+            lastCommandStatus = AppText.launchAtLoginFailed(error.localizedDescription)
         }
     }
 
@@ -281,14 +295,14 @@ final class AppState: ObservableObject {
 
     func toggleServerMode() async {
         guard !isCommandRunning else {
-            lastCommandStatus = "已有命令执行中"
+            lastCommandStatus = AppText.commandAlreadyRunning
             return
         }
 
         if serverModeRequested || serverModeActive {
             if await needsClosedLidStopConfirmation(),
                !confirmStopServerModeForClosedLidWithoutExternalDisplay() {
-                lastCommandStatus = "关闭 Server 模式已取消"
+                lastCommandStatus = AppText.stopServerModeCancelled
                 return
             }
 
@@ -327,11 +341,32 @@ final class AppState: ObservableObject {
 
     func toggleBatteryServerMode() {
         guard !isCommandRunning else {
-            lastCommandStatus = "已有命令执行中"
+            lastCommandStatus = AppText.commandAlreadyRunning
             return
         }
 
         setAllowBatteryServerMode(!allowBatteryServerMode)
+    }
+
+    func toggleLowBatteryNotifications() {
+        setLowBatteryNotificationsEnabled(!lowBatteryNotificationsEnabled)
+    }
+
+    func setLowBatteryNotificationsEnabled(_ isEnabled: Bool) {
+        guard lowBatteryNotificationsEnabled != isEnabled else {
+            return
+        }
+
+        lowBatteryNotificationsEnabled = isEnabled
+        if isEnabled {
+            lastCommandStatus = AppText.lowBatteryNotificationsOn
+            Task {
+                await evaluateLowBatteryNotification()
+            }
+        } else {
+            lastCommandStatus = AppText.lowBatteryNotificationsOff
+            sentLowBatteryThresholds.removeAll()
+        }
     }
 
     func prepareForQuit() async -> Bool {
@@ -357,9 +392,9 @@ final class AppState: ObservableObject {
 
         guard canRunServerMode(on: currentSource) else {
             if serverModeActive {
-                await stopServerMode(clearRequest: false, successMessage: "已暂停，等待连接电源适配器")
+                await stopServerMode(clearRequest: false, successMessage: AppText.pausedWaitingForPowerAdapter)
             } else {
-                lastCommandStatus = "等待连接电源适配器"
+                lastCommandStatus = AppText.waitingForPowerAdapter
             }
 
             return
@@ -377,12 +412,12 @@ final class AppState: ObservableObject {
             await stopServerMode(clearRequest: true)
         } else {
             serverModeRequested = false
-            lastCommandStatus = "Server 模式已取消"
+            lastCommandStatus = AppText.serverModeCancelled
         }
     }
 
     private func startServerMode(powerSource: PowerSource) async {
-        guard beginCommand(waitingStatus: "等待授权启用") else {
+        guard beginCommand(waitingStatus: AppText.waitingForAuthorizationToStart) else {
             return
         }
 
@@ -396,7 +431,7 @@ final class AppState: ObservableObject {
     }
 
     private func stopServerMode(clearRequest: Bool, successMessage: String? = nil) async {
-        guard beginCommand(waitingStatus: "等待授权关闭") else {
+        guard beginCommand(waitingStatus: AppText.waitingForAuthorizationToStop) else {
             return
         }
 
@@ -424,7 +459,7 @@ final class AppState: ObservableObject {
 
         if isSleepDisabled {
             powerManager.adoptExistingServerMode(powerSource: currentSource)
-            lastCommandStatus = "检测到合盖模式已启用"
+            lastCommandStatus = AppText.detectedServerModeEnabled
 
             if !canRunServerMode(on: currentSource), !isCommandRunning {
                 await reconcileServerMode()
@@ -436,6 +471,8 @@ final class AppState: ObservableObject {
         if serverModeActive, !isCommandRunning {
             await dimClosedLidBuiltInDisplayIfNeeded()
         }
+
+        await evaluateLowBatteryNotification()
     }
 
     private func currentPowerSource() async -> PowerSource {
@@ -470,6 +507,7 @@ final class AppState: ObservableObject {
 
         Task {
             await reconcileServerMode()
+            await evaluateLowBatteryNotification()
         }
     }
 
@@ -529,6 +567,68 @@ final class AppState: ObservableObject {
         _ = await currentPowerSource()
         await reconcileServerMode()
         await dimClosedLidBuiltInDisplayIfNeeded(force: true)
+        await evaluateLowBatteryNotification()
+    }
+
+    private func startBatteryNotificationTimer() {
+        guard batteryNotificationTimer == nil else {
+            return
+        }
+
+        batteryNotificationTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.evaluateLowBatteryNotification()
+            }
+        }
+    }
+
+    private func evaluateLowBatteryNotification() async {
+        guard lowBatteryNotificationsEnabled,
+              serverModeActive,
+              allowBatteryServerMode,
+              powerSource == .batteryPower else {
+            sentLowBatteryThresholds.removeAll()
+            return
+        }
+
+        guard let batteryPercentage = monitor.detectBatteryPercentage() else {
+            return
+        }
+
+        let threshold: Int?
+        if batteryPercentage <= 20 {
+            threshold = 20
+        } else if batteryPercentage <= 50 {
+            threshold = 50
+        } else {
+            threshold = nil
+        }
+
+        guard let threshold, !sentLowBatteryThresholds.contains(threshold) else {
+            return
+        }
+
+        sentLowBatteryThresholds.insert(threshold)
+
+        let recipient = defaults.string(forKey: AppDefaultsKey.iMessageRecipientAddress)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !recipient.isEmpty else {
+            lastCommandStatus = AppText.iMessageRecipientMissing
+            return
+        }
+
+        let message = AppText.lowBatteryIMessage(
+            threshold: threshold,
+            batteryPercentage: batteryPercentage,
+            macName: IMessageNotifier.defaultMacName
+        )
+
+        do {
+            try await IMessageNotifier.send(message: message, to: recipient)
+            lastCommandStatus = AppText.lowBatteryNotificationSent(threshold: threshold)
+        } catch {
+            lastCommandStatus = AppText.lowBatteryNotificationFailed(error.localizedDescription)
+        }
     }
 
     private func dimClosedLidBuiltInDisplayIfNeeded(force: Bool = false) async {
@@ -561,10 +661,10 @@ final class AppState: ObservableObject {
             lastCommandStatus = message
         case .userCancelled:
             didHandleBuiltInDisplayForClosedLid = false
-            lastCommandStatus = "内建屏调暗取消"
+            lastCommandStatus = AppText.builtInDisplayDimCancelled
         case .failure(let message):
             didHandleBuiltInDisplayForClosedLid = false
-            lastCommandStatus = "内建屏调暗失败：\(message)"
+            lastCommandStatus = AppText.builtInDisplayDimFailed(message)
         }
     }
 
@@ -581,15 +681,15 @@ final class AppState: ObservableObject {
         case .success(let message):
             lastCommandStatus = message
         case .userCancelled:
-            lastCommandStatus = "内建屏亮度恢复取消"
+            lastCommandStatus = AppText.builtInDisplayBrightnessRestoreCancelled
         case .failure(let message):
-            lastCommandStatus = "内建屏亮度恢复失败：\(message)"
+            lastCommandStatus = AppText.builtInDisplayBrightnessRestoreFailed(message)
         }
     }
 
     private func beginCommand(waitingStatus: String) -> Bool {
         guard !isCommandRunning else {
-            lastCommandStatus = "已有命令执行中"
+            lastCommandStatus = AppText.commandAlreadyRunning
             return false
         }
 
@@ -607,15 +707,15 @@ final class AppState: ObservableObject {
         case .success(let message):
             serverModeRequested = true
             serverModeActive = true
-            lastCommandStatus = "成功：\(message)"
+            lastCommandStatus = AppText.success(message)
         case .userCancelled:
             serverModeRequested = false
             serverModeActive = false
-            lastCommandStatus = "用户取消授权"
+            lastCommandStatus = AppText.userCancelledAuthorization
         case .failure(let message):
             serverModeRequested = false
             serverModeActive = false
-            lastCommandStatus = "失败：\(message)"
+            lastCommandStatus = AppText.failure(message)
         }
     }
 
@@ -633,17 +733,17 @@ final class AppState: ObservableObject {
             if !clearRequest {
                 serverModeRequested = previousRequest
             }
-            lastCommandStatus = "成功：\(successMessage ?? message)"
+            lastCommandStatus = AppText.success(successMessage ?? message)
         case .userCancelled:
             if clearRequest {
                 serverModeRequested = previousRequest
             }
-            lastCommandStatus = "用户取消授权"
+            lastCommandStatus = AppText.userCancelledAuthorization
         case .failure(let message):
             if clearRequest {
                 serverModeRequested = previousRequest
             }
-            lastCommandStatus = "失败：\(message)"
+            lastCommandStatus = AppText.failure(message)
         }
     }
 

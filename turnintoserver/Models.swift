@@ -1,5 +1,10 @@
 import Foundation
 
+enum AppDefaultsKey {
+    static let iMessageRecipientAddress = "iMessageRecipientAddress"
+    static let lowBatteryNotificationsEnabled = "lowBatteryNotificationsEnabled"
+}
+
 enum AppText {
     static var notStarted: String {
         localized(chinese: "未启动", english: "Not Running")
@@ -54,6 +59,10 @@ enum AppText {
 
     static var allowBatteryServerMode: String {
         localized(chinese: "电池也允许 Server 模式", english: "Allow Server Mode on Battery")
+    }
+
+    static var lowBatteryNotifications: String {
+        localized(chinese: "推送低电量通知", english: "Low Battery iMessage Alerts")
     }
 
     static var launchAtLogin: String {
@@ -113,6 +122,45 @@ enum AppText {
 
     static var batteryModeShortcutHint: String {
         localized(chinese: "⌃⌥⌘P：切换电池模式", english: "⌃⌥⌘P: Toggle Battery Mode")
+    }
+
+    static var iMessageSettingsTitle: String {
+        localized(chinese: "低电量 iMessage 通知", english: "Low Battery iMessage Alerts")
+    }
+
+    static var iMessageRecipientPlaceholder: String {
+        localized(chinese: "手机号或 Apple ID 邮箱", english: "Phone number or Apple ID email")
+    }
+
+    static var sendTestMessage: String {
+        localized(chinese: "测试发送", english: "Send Test")
+    }
+
+    static var iMessageSettingsIdle: String {
+        localized(chinese: "低于 50% 和 20% 时会各发送一次。", english: "Sends once below 50% and once below 20%.")
+    }
+
+    static var iMessageRecipientMissing: String {
+        localized(chinese: "请先填写 iMessage 收件地址。", english: "Enter an iMessage recipient first.")
+    }
+
+    static var iMessageTestSending: String {
+        localized(chinese: "正在通过 Messages 发送…", english: "Sending through Messages...")
+    }
+
+    static var iMessageTestSent: String {
+        localized(chinese: "测试消息已发送。", english: "Test message sent.")
+    }
+
+    static func iMessageTestFailed(_ message: String) -> String {
+        localized(chinese: "测试发送失败：\(message)", english: "Test send failed: \(message)")
+    }
+
+    static func iMessageTestMessage(macName: String) -> String {
+        localized(
+            chinese: "turnintoserver 测试：\(macName) 的低电量 iMessage 通知已配置成功。",
+            english: "turnintoserver test: low battery iMessage alerts are configured on \(macName)."
+        )
     }
 
     static var checkForUpdates: String {
@@ -201,6 +249,177 @@ enum AppText {
 
     static var launchAtLoginUnsupported: String {
         localized(chinese: "开机自动启动需要 macOS 13 或更高版本", english: "Open at Login requires macOS 13 or later")
+    }
+
+    static var batteryPowerAllowed: String {
+        localized(chinese: "电池供电已允许", english: "Battery power is allowed")
+    }
+
+    static var batteryPowerRestricted: String {
+        localized(chinese: "电池供电已限制", english: "Battery power is restricted")
+    }
+
+    static var lowBatteryNotificationsOn: String {
+        localized(chinese: "低电量通知已开启", english: "Low battery alerts are on")
+    }
+
+    static var lowBatteryNotificationsOff: String {
+        localized(chinese: "低电量通知已关闭", english: "Low battery alerts are off")
+    }
+
+    static func launchAtLoginFailed(_ message: String) -> String {
+        localized(chinese: "开机启动失败：\(message)", english: "Open at Login failed: \(message)")
+    }
+
+    static var commandAlreadyRunning: String {
+        localized(chinese: "已有命令执行中", english: "A command is already running")
+    }
+
+    static var stopServerModeCancelled: String {
+        localized(chinese: "关闭 Server 模式已取消", english: "Turning off Server Mode was cancelled")
+    }
+
+    static var pausedWaitingForPowerAdapter: String {
+        localized(chinese: "已暂停，等待连接电源适配器", english: "Paused, waiting for a power adapter")
+    }
+
+    static var serverModeCancelled: String {
+        localized(chinese: "Server 模式已取消", english: "Server Mode was cancelled")
+    }
+
+    static var waitingForAuthorizationToStart: String {
+        localized(chinese: "等待授权启用", english: "Waiting for authorization to start")
+    }
+
+    static var waitingForAuthorizationToStop: String {
+        localized(chinese: "等待授权关闭", english: "Waiting for authorization to stop")
+    }
+
+    static var detectedServerModeEnabled: String {
+        localized(chinese: "检测到合盖模式已启用", english: "Detected that closed-lid mode is enabled")
+    }
+
+    static var builtInDisplayDimCancelled: String {
+        localized(chinese: "内建屏调暗取消", english: "Built-in display dimming was cancelled")
+    }
+
+    static func builtInDisplayDimFailed(_ message: String) -> String {
+        localized(chinese: "内建屏调暗失败：\(message)", english: "Built-in display dimming failed: \(message)")
+    }
+
+    static var builtInDisplayBrightnessRestoreCancelled: String {
+        localized(chinese: "内建屏亮度恢复取消", english: "Built-in display brightness restore was cancelled")
+    }
+
+    static func builtInDisplayBrightnessRestoreFailed(_ message: String) -> String {
+        localized(chinese: "内建屏亮度恢复失败：\(message)", english: "Built-in display brightness restore failed: \(message)")
+    }
+
+    static func success(_ message: String) -> String {
+        localized(chinese: "成功：\(message)", english: "Success: \(message)")
+    }
+
+    static var userCancelledAuthorization: String {
+        localized(chinese: "用户取消授权", english: "Authorization was cancelled")
+    }
+
+    static func failure(_ message: String) -> String {
+        localized(chinese: "失败：\(message)", english: "Failed: \(message)")
+    }
+
+    static var startedOnBatteryPower: String {
+        localized(chinese: "已在电池供电下启动", english: "Started on battery power")
+    }
+
+    static var startedOnPowerAdapter: String {
+        localized(chinese: "已在接电源下启动", english: "Started on power adapter")
+    }
+
+    static var startedServerMode: String {
+        localized(chinese: "已启动", english: "Started")
+    }
+
+    static var restoredClosedLidSleep: String {
+        localized(chinese: "已恢复合盖睡眠", english: "Closed-lid sleep has been restored")
+    }
+
+    static var serverModeAlreadyRunning: String {
+        localized(chinese: "Server 模式已在运行", english: "Server Mode is already running")
+    }
+
+    static func caffeinateLaunchFailed(_ message: String) -> String {
+        localized(chinese: "无法启动 caffeinate：\(message)", english: "Could not start caffeinate: \(message)")
+    }
+
+    static var caffeinateExited: String {
+        localized(chinese: "caffeinate 已退出", english: "caffeinate exited")
+    }
+
+    static var commandFailed: String {
+        localized(chinese: "命令执行失败", english: "Command failed")
+    }
+
+    static var unsupportedUserName: String {
+        localized(chinese: "当前用户名包含 sudoers 不支持的字符", english: "The current username contains characters unsupported by sudoers")
+    }
+
+    static var builtInDisplayControlUnavailable: String {
+        localized(chinese: "无法载入内建显示器控制", english: "Could not load built-in display controls")
+    }
+
+    static var noOnlineBuiltInDisplay: String {
+        localized(chinese: "未检测到在线内建屏", english: "No online built-in display was detected")
+    }
+
+    static func readBuiltInDisplayBrightnessFailed(_ code: Int32) -> String {
+        localized(chinese: "读取内建屏亮度失败：\(code)", english: "Reading built-in display brightness failed: \(code)")
+    }
+
+    static func dimBuiltInDisplayFailed(_ code: Int32) -> String {
+        localized(chinese: "调暗内建屏失败：\(code)", english: "Dimming the built-in display failed: \(code)")
+    }
+
+    static var builtInDisplayDimmed: String {
+        localized(chinese: "已调暗内建屏", english: "Built-in display dimmed")
+    }
+
+    static var couldNotDimBuiltInDisplay: String {
+        localized(chinese: "未能调暗内建屏", english: "Could not dim the built-in display")
+    }
+
+    static var noBuiltInDisplayBrightnessRestoreNeeded: String {
+        localized(chinese: "无需恢复内建屏亮度", english: "No built-in display brightness restore needed")
+    }
+
+    static func restoreBuiltInDisplayBrightnessFailed(_ code: Int32) -> String {
+        localized(chinese: "恢复内建屏亮度失败：\(code)", english: "Restoring built-in display brightness failed: \(code)")
+    }
+
+    static var builtInDisplayBrightnessRestored: String {
+        localized(chinese: "已恢复内建屏亮度", english: "Built-in display brightness restored")
+    }
+
+    static var couldNotRestoreBuiltInDisplayBrightness: String {
+        localized(chinese: "未能恢复内建屏亮度", english: "Could not restore built-in display brightness")
+    }
+
+    static var messagesDidNotSend: String {
+        localized(chinese: "Messages 未能发送消息。", english: "Messages did not send the message.")
+    }
+
+    static func lowBatteryIMessage(threshold: Int, batteryPercentage: Int, macName: String) -> String {
+        localized(
+            chinese: "turnintoserver 警告：\(macName) 正在使用电池运行 Server Mode，电量已低于 \(threshold)%（当前 \(batteryPercentage)%）。请尽快接入电源。",
+            english: "turnintoserver alert: \(macName) is running Server Mode on battery and is below \(threshold)% power (currently \(batteryPercentage)%). Please connect power soon."
+        )
+    }
+
+    static func lowBatteryNotificationSent(threshold: Int) -> String {
+        localized(chinese: "已发送低电量通知：低于 \(threshold)%", english: "Low battery alert sent: below \(threshold)%")
+    }
+
+    static func lowBatteryNotificationFailed(_ message: String) -> String {
+        localized(chinese: "低电量通知发送失败：\(message)", english: "Low battery alert failed: \(message)")
     }
 
     static func localized(chinese: String, english: String) -> String {
@@ -302,7 +521,58 @@ enum PowerManagerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedUserName:
-            return "当前用户名包含 sudoers 不支持的字符"
+            return AppText.unsupportedUserName
+        }
+    }
+}
+
+enum IMessageNotifier {
+    static func send(message: String, to recipient: String) async throws {
+        let trimmedRecipient = recipient.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRecipient.isEmpty else {
+            throw IMessageNotifierError.missingRecipient
+        }
+
+        let script = """
+        tell application "Messages"
+            set iMessageAccounts to every account whose service type is iMessage and enabled is true
+            if (count of iMessageAccounts) is 0 then error "No enabled iMessage account is available in Messages."
+            set targetAccount to item 1 of iMessageAccounts
+            set targetParticipant to participant \(appleScriptString(trimmedRecipient)) of targetAccount
+            send \(appleScriptString(message)) to targetParticipant
+        end tell
+        """
+
+        let result = try await ShellRunner.run("/usr/bin/osascript", arguments: ["-e", script])
+        guard result.exitCode == 0 else {
+            throw IMessageNotifierError.sendFailed(result.combinedOutput)
+        }
+    }
+
+    static var defaultMacName: String {
+        Host.current().localizedName ?? "Mac"
+    }
+
+    private static func appleScriptString(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+        return "\"\(escaped)\""
+    }
+}
+
+enum IMessageNotifierError: LocalizedError {
+    case missingRecipient
+    case sendFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingRecipient:
+            return AppText.iMessageRecipientMissing
+        case .sendFailed(let message):
+            return message.isEmpty ? AppText.messagesDidNotSend : message
         }
     }
 }

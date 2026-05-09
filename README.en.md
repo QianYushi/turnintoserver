@@ -24,6 +24,7 @@ I built it because I wanted to use a MacBook as a small temporary server. Most k
 - Runs on power, pauses automatically on battery.
 - Resumes automatically when power is connected again.
 - Can optionally keep running on battery.
+- Can send low battery iMessage alerts while running on battery.
 - Supports launch at login.
 
 ## Good For
@@ -57,12 +58,16 @@ The main controls are:
 
 - `Start Server Mode`: keeps the Mac running while connected to power.
 - `Allow Server Mode on Battery`: keeps running after power is unplugged. Off by default.
-- `Launch at Login`: opens the app after login.
+- `Low Battery iMessage Alerts`: sends iMessage alerts below 50% and 20% while running on battery.
+- `Open at Login`: opens the app after login.
+- `About`: shows the version, checks for updates, configures the iMessage recipient, and sends a test message.
 - `Quit`: restores the default sleep behavior before quitting.
 
 For normal use, turn on Server Mode and close the lid.
 
 If battery mode is off, unplugging power pauses Server Mode. Plugging power back in resumes it automatically.
+
+Low battery iMessage alerts need a recipient phone number or Apple ID email in About. Use Send Test to confirm it works. The first send may ask macOS for permission to let `turnintoserver` control Messages; allow it. This feature depends on Messages being signed in with a working iMessage account on the Mac.
 
 ## About The Display
 
@@ -78,7 +83,8 @@ Use it plugged in, on a desk, with normal airflow. Setting the built-in display 
 
 ## Requirements
 
-- macOS 14 or later.
+- Intel Mac: macOS 10.15 Catalina or later.
+- Apple Silicon Mac: macOS 11 Big Sur or later.
 - Plugged-in use is recommended.
 
 ## Note

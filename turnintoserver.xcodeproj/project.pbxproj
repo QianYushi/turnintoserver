@@ -34,6 +34,7 @@
 		A20000000000000000000011 /* BuiltInDisplayDimmer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuiltInDisplayDimmer.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutWindowController.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* turnintoserver.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = turnintoserver.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +70,7 @@
 				A20000000000000000000005 /* ShellRunner.swift */,
 				A20000000000000000000006 /* Models.swift */,
 				A20000000000000000000007 /* Info.plist */,
+				A20000000000000000000014 /* turnintoserver.entitlements */,
 				A20000000000000000000009 /* Assets.xcassets */,
 			);
 			path = turnintoserver;
@@ -284,6 +286,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = turnintoserver/turnintoserver.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -310,6 +313,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = turnintoserver/turnintoserver.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
