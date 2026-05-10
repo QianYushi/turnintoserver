@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TurnIntoServer - Use a MacBook as a closed-lid server</title>
+  <meta name="description" content="TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed while setting the built-in display to zero brightness.">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://qianyushi.github.io/turnintoserver/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="TurnIntoServer - Use a MacBook as a closed-lid server">
+  <meta property="og:description" content="Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook.">
+  <meta property="og:url" content="https://qianyushi.github.io/turnintoserver/">
+  <meta property="og:image" content="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="TurnIntoServer - Use a MacBook as a closed-lid server">
+  <meta name="twitter:description" content="A small macOS menu bar app for running a MacBook as a closed-lid server.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png">
+  <link rel="icon" href="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png" type="image/png">
+  <style>
+    :root {
+      --paper: #f7f6f1;
+      --surface: #ffffff;
+      --ink: #15181f;
+      --muted: #626a76;
+      --line: #d7dce2;
+      --deep: #172231;
+      --blue: #315fd6;
+      --green: #31c46b;
+      --red: #ef4e4e;
+      --amber: #f2a32c;
+      --shadow: 0 22px 60px rgba(23, 34, 49, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      line-height: 1.5;
+      overflow-x: hidden;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(21, 24, 31, 0.08);
+      background: rgba(247, 246, 241, 0.92);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav {
+      width: min(1120px, calc(100% - 40px));
+      min-height: 68px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+    }
+
+    .brand img {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      box-shadow: 0 6px 16px rgba(23, 34, 49, 0.14);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-links a:hover {
+      color: var(--ink);
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 8px;
+      border: 1px solid rgba(21, 24, 31, 0.12);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: var(--ink);
+      background: var(--ink);
+      color: #ffffff;
+    }
+
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 26px rgba(23, 34, 49, 0.12);
+    }
+
+    main {
+      overflow: hidden;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 760px;
+      padding: 78px 0 70px;
+      isolation: isolate;
+    }
+
+    .hero-scene {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      overflow: hidden;
+      background: var(--paper);
+    }
+
+    .hero-scene::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 320px;
+      background: #e8eef4;
+    }
+
+    .desk-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 116px;
+      height: 1px;
+      background: rgba(21, 24, 31, 0.12);
+    }
+
+    .macbook {
+      position: absolute;
+      right: max(28px, calc((100vw - 1120px) / 2));
+      bottom: 86px;
+      width: min(560px, 52vw);
+      aspect-ratio: 16 / 10;
+      border-radius: 22px 22px 10px 10px;
+      border: 1px solid rgba(21, 24, 31, 0.18);
+      background: #cfd7dc;
+      box-shadow: var(--shadow);
+    }
+
+    .macbook::before {
+      content: "";
+      position: absolute;
+      inset: 20px 22px 42px;
+      border-radius: 10px;
+      background: #1c2633;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    }
+
+    .macbook::after {
+      content: "";
+      position: absolute;
+      left: -56px;
+      right: -56px;
+      bottom: -22px;
+      height: 24px;
+      border-radius: 0 0 18px 18px;
+      background: #bfc7cc;
+      box-shadow: 0 16px 28px rgba(23, 34, 49, 0.14);
+    }
+
+    .hero-inner {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 560px) minmax(300px, 1fr);
+      gap: 54px;
+      align-items: center;
+    }
+
+    .hero-copy {
+      padding-top: 20px;
+      min-width: 0;
+    }
+
+    .app-mark {
+      width: 84px;
+      height: 84px;
+      margin-bottom: 26px;
+      border-radius: 18px;
+      box-shadow: 0 18px 38px rgba(23, 34, 49, 0.2);
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 620px;
+      font-size: 58px;
+      line-height: 1.04;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 600px;
+      margin: 24px 0 0;
+      color: #353b45;
+      font-size: 20px;
+      line-height: 1.55;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 34px;
+    }
+
+    .requirements {
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .screenshot {
+      position: relative;
+      width: min(480px, 100%);
+      min-width: 0;
+      margin: 32px 0 0 auto;
+    }
+
+    .menu-bar {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      padding-right: 18px;
+      border-radius: 20px 20px 0 0;
+      background: rgba(255, 255, 255, 0.42);
+      color: #253041;
+      box-shadow: 0 1px 0 rgba(21, 24, 31, 0.08) inset;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(49, 95, 214, 0.12);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .status-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--green);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .menu {
+      padding: 18px 22px 20px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 18px;
+      background: rgba(23, 34, 49, 0.93);
+      color: #ffffff;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(20px);
+    }
+
+    .menu-row {
+      display: grid;
+      grid-template-columns: 26px minmax(0, 1fr) auto;
+      align-items: center;
+      min-height: 46px;
+      gap: 10px;
+      font-weight: 720;
+    }
+
+    .menu-row > span {
+      min-width: 0;
+    }
+
+    .menu-row.muted {
+      min-height: 30px;
+      color: rgba(255, 255, 255, 0.48);
+      font-weight: 620;
+    }
+
+    .menu-rule {
+      height: 1px;
+      margin: 10px 0;
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .tiny-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .check {
+      width: 15px;
+      height: 15px;
+      border-left: 3px solid #ffffff;
+      border-bottom: 3px solid #ffffff;
+      transform: rotate(-45deg) translateY(-2px);
+    }
+
+    .set-button {
+      min-width: 76px;
+      padding: 7px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .section {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 82px 0;
+    }
+
+    .section h2 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .section-intro {
+      max-width: 680px;
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 32px;
+    }
+
+    .feature {
+      min-height: 172px;
+      padding: 22px;
+      border: 1px solid rgba(21, 24, 31, 0.1);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 12px 26px rgba(23, 34, 49, 0.06);
+    }
+
+    .feature h3 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .feature p {
+      margin: 10px 0 0;
+      color: var(--muted);
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 32px;
+      counter-reset: step;
+    }
+
+    .step {
+      position: relative;
+      min-height: 150px;
+      padding: 24px 20px 20px;
+      border-top: 3px solid var(--blue);
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 16px;
+      border-radius: 50%;
+      background: var(--ink);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .step h3 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .step p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .download-band {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto 72px;
+      padding: 42px;
+      border-radius: 8px;
+      background: var(--deep);
+      color: #ffffff;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .download-band h2 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+
+    .download-band p {
+      margin: 10px 0 0;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .download-band .button {
+      background: #ffffff;
+      color: var(--ink);
+    }
+
+    .site-footer {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+      border-top: 1px solid rgba(21, 24, 31, 0.1);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      font-size: 14px;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .footer-links a:hover {
+      color: var(--ink);
+    }
+
+    @media (max-width: 900px) {
+      .nav {
+        width: min(100% - 28px, 720px);
+      }
+
+      .nav-links {
+        gap: 12px;
+      }
+
+      .nav-links a:not(.button) {
+        display: none;
+      }
+
+      .hero {
+        min-height: 0;
+        padding: 52px 0 44px;
+      }
+
+      .hero-inner {
+        width: min(100% - 28px, 720px);
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+
+      .hero-copy {
+        padding-top: 0;
+      }
+
+      h1 {
+        font-size: 42px;
+      }
+
+      .lead {
+        font-size: 18px;
+      }
+
+      .app-mark {
+        width: 70px;
+        height: 70px;
+      }
+
+      .macbook {
+        opacity: 0.22;
+        right: -140px;
+        bottom: 120px;
+        width: 520px;
+      }
+
+      .screenshot {
+        margin: 14px auto 0;
+      }
+
+      .section {
+        width: min(100% - 28px, 720px);
+        padding: 58px 0;
+      }
+
+      .feature-grid,
+      .steps {
+        grid-template-columns: 1fr;
+      }
+
+      .download-band {
+        width: min(100% - 28px, 720px);
+        grid-template-columns: 1fr;
+        padding: 30px;
+      }
+
+      .site-footer {
+        width: min(100% - 28px, 720px);
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .nav,
+      .hero-inner,
+      .section,
+      .download-band,
+      .site-footer {
+        width: calc(100% - 28px);
+        max-width: calc(100% - 28px);
+      }
+
+      .brand span {
+        display: none;
+      }
+
+      .nav {
+        min-height: 62px;
+      }
+
+      .button {
+        min-height: 42px;
+        padding: 0 14px;
+        font-size: 14px;
+      }
+
+      h1 {
+        font-size: 34px;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+      }
+
+      .lead {
+        font-size: 16px;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+      }
+
+      .hero-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .hero-actions .button {
+        width: 100%;
+      }
+
+      .screenshot {
+        width: 100%;
+        max-width: 100%;
+      }
+
+      .menu {
+        max-width: 100%;
+        padding: 14px;
+      }
+
+      .menu-row {
+        grid-template-columns: 22px minmax(0, 1fr) auto;
+        min-height: 42px;
+        gap: 8px;
+        font-size: 14px;
+      }
+
+      .menu-row.muted {
+        font-size: 13px;
+      }
+
+      .set-button {
+        min-width: 58px;
+        padding: 6px 8px;
+      }
+
+      .section h2,
+      .download-band h2 {
+        font-size: 26px;
+      }
+    }
+  </style>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "TurnIntoServer",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "macOS",
+      "description": "A macOS menu bar app that helps use a MacBook as a closed-lid server while setting the built-in display to zero brightness.",
+      "url": "https://qianyushi.github.io/turnintoserver/",
+      "downloadUrl": "https://github.com/QianYushi/turnintoserver/releases/latest",
+      "codeRepository": "https://github.com/QianYushi/turnintoserver",
+      "image": "https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png",
+      "softwareVersion": "1.1",
+      "author": {
+        "@type": "Person",
+        "name": "qianyushi"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="TurnIntoServer home">
+        <img src="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png" alt="">
+        <span>TurnIntoServer</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/QianYushi/turnintoserver">GitHub</a>
+        <a class="button secondary" href="https://github.com/QianYushi/turnintoserver/releases/latest">Download</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-scene" aria-hidden="true">
+        <div class="macbook"></div>
+        <div class="desk-line"></div>
+      </div>
+
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <img class="app-mark" src="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png" alt="TurnIntoServer app icon">
+          <h1 id="hero-title">Use a MacBook as a closed-lid server.</h1>
+          <p class="lead">TurnIntoServer keeps a plugged-in MacBook running after the lid closes, while setting only the built-in display to zero brightness.</p>
+          <div class="hero-actions" aria-label="Project actions">
+            <a class="button primary" href="https://github.com/QianYushi/turnintoserver/releases/latest">Download for macOS</a>
+            <a class="button secondary" href="https://github.com/QianYushi/turnintoserver">View on GitHub</a>
+          </div>
+          <p class="requirements">Intel Mac: macOS 10.15+. Apple Silicon Mac: macOS 11+.</p>
+        </div>
+
+        <figure class="screenshot" aria-label="TurnIntoServer menu bar screenshot">
+          <div class="menu-bar" aria-hidden="true">
+            <span>Wi-Fi</span>
+            <span>Battery</span>
+            <span class="status-pill"><span class="status-dot">S</span> ON</span>
+          </div>
+          <div class="menu">
+            <div class="menu-row">
+              <span class="tiny-dot" aria-hidden="true"></span>
+              <span>Stop Server Mode</span>
+              <span></span>
+            </div>
+            <div class="menu-row muted">
+              <span></span>
+              <span>Keeps running with lid closed</span>
+              <span></span>
+            </div>
+            <div class="menu-row muted">
+              <span></span>
+              <span>Running for 2h 18m</span>
+              <span></span>
+            </div>
+            <div class="menu-rule"></div>
+            <div class="menu-row">
+              <span class="check" aria-hidden="true"></span>
+              <span>Allow Server Mode on Battery</span>
+              <span></span>
+            </div>
+            <div class="menu-row">
+              <span class="check" aria-hidden="true"></span>
+              <span>Low Battery Alerts</span>
+              <span class="set-button">Set Up</span>
+            </div>
+            <div class="menu-row">
+              <span class="check" aria-hidden="true"></span>
+              <span>Enable Shortcuts</span>
+              <span class="set-button">Set Up</span>
+            </div>
+            <div class="menu-row">
+              <span></span>
+              <span>Open at Login</span>
+              <span></span>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="features" aria-labelledby="features-title">
+      <h2 id="features-title">Built for the closed-lid server use case.</h2>
+      <p class="section-intro">It is not a generic keep-awake utility. The app focuses on the common MacBook-as-server setup: power connected, lid closed, services still reachable, and the hidden built-in display no longer emitting light.</p>
+      <div class="feature-grid">
+        <article class="feature">
+          <h3>Keep services running</h3>
+          <p>Run SSH, remote desktop, local network tools, download jobs, media services, and development servers after closing the lid.</p>
+        </article>
+        <article class="feature">
+          <h3>Dim the built-in display</h3>
+          <p>When the lid closes, TurnIntoServer tries to set the MacBook display to zero brightness without intentionally blanking external monitors.</p>
+        </article>
+        <article class="feature">
+          <h3>Respect battery use</h3>
+          <p>Server Mode pauses on battery by default, resumes when power returns, and can optionally keep running on battery when you need it.</p>
+        </article>
+        <article class="feature">
+          <h3>Low battery alerts</h3>
+          <p>When battery mode is enabled, the app can send low battery alerts through iMessage or Bark at 50% and 20%.</p>
+        </article>
+        <article class="feature">
+          <h3>Menu bar workflow</h3>
+          <p>The app lives in the macOS menu bar, with status colors, running time, launch-at-login, update checking, and custom shortcuts.</p>
+        </article>
+        <article class="feature">
+          <h3>Open source</h3>
+          <p>The Swift and SwiftUI source code is available on GitHub, together with build scripts and release notes.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="install" aria-labelledby="install-title">
+      <h2 id="install-title">Install in a minute.</h2>
+      <p class="section-intro">Download the latest DMG from GitHub Releases, drag the app into Applications, then turn on Server Mode from the menu bar.</p>
+      <div class="steps">
+        <article class="step">
+          <h3>Download</h3>
+          <p>Get the latest TurnIntoServer DMG from GitHub Releases.</p>
+        </article>
+        <article class="step">
+          <h3>Install</h3>
+          <p>Open the DMG and drag turnintoserver.app into Applications.</p>
+        </article>
+        <article class="step">
+          <h3>Enable</h3>
+          <p>Launch the app and start Server Mode from the menu bar.</p>
+        </article>
+        <article class="step">
+          <h3>Close the lid</h3>
+          <p>Keep the MacBook plugged in, on a desk, with normal airflow.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="download-band" aria-labelledby="download-title">
+      <div>
+        <h2 id="download-title">Ready to turn a MacBook into a small server?</h2>
+        <p>Free, open source, and built for the macOS menu bar.</p>
+      </div>
+      <a class="button" href="https://github.com/QianYushi/turnintoserver/releases/latest">Download latest release</a>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>TurnIntoServer by qianyushi.</span>
+    <div class="footer-links">
+      <a href="https://github.com/QianYushi/turnintoserver">GitHub repository</a>
+      <a href="https://github.com/QianYushi/turnintoserver/releases/latest">Latest release</a>
+      <a href="https://github.com/QianYushi/turnintoserver/blob/main/README.en.md">README</a>
+    </div>
+  </footer>
+</body>
+</html>
