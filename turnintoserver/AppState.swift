@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published private(set) var powerSource: PowerSource {
         didSet {
             defaults.set(powerSource.rawValue, forKey: DefaultsKey.lastKnownPowerSource)
+            notifyStatusIconShouldRefresh()
         }
     }
 
@@ -23,6 +24,7 @@ final class AppState: ObservableObject {
     @Published private(set) var serverModeActive = false {
         didSet {
             updateServerModeRuntimeTracking()
+            notifyStatusIconShouldRefresh()
             Task { @MainActor in
                 await evaluateLowBatteryNotification()
             }
@@ -31,6 +33,7 @@ final class AppState: ObservableObject {
     @Published private(set) var serverModeRequested = false {
         didSet {
             defaults.set(serverModeRequested, forKey: DefaultsKey.serverModeRequested)
+            notifyStatusIconShouldRefresh()
         }
     }
     @Published private(set) var lastCommandStatus: String {
@@ -45,6 +48,7 @@ final class AppState: ObservableObject {
     @Published private(set) var allowBatteryServerMode: Bool {
         didSet {
             defaults.set(allowBatteryServerMode, forKey: DefaultsKey.allowBatteryServerMode)
+            notifyStatusIconShouldRefresh()
         }
     }
 
@@ -114,7 +118,7 @@ final class AppState: ObservableObject {
     }
 
     var menuBarStatusTitle: String {
-        if serverModeActive {
+        if serverModeActive || (serverModeRequested && !isWaitingForPowerAdapter) {
             return allowBatteryServerMode
                 ? AppText.serverModeOnBatteryAllowed
                 : AppText.serverModeOnPowerOnly
@@ -128,7 +132,7 @@ final class AppState: ObservableObject {
     }
 
     var menuBarIconStyle: MenuBarIconStyle {
-        if serverModeActive {
+        if serverModeActive || (serverModeRequested && !isWaitingForPowerAdapter) {
             return allowBatteryServerMode ? .serverModeBatteryAllowed : .serverModePowerOnly
         }
 
@@ -222,6 +226,10 @@ final class AppState: ObservableObject {
 
     private var isWaitingForPowerAdapter: Bool {
         serverModeRequested && !serverModeActive && powerSource == .batteryPower && !allowBatteryServerMode
+    }
+
+    private func notifyStatusIconShouldRefresh() {
+        NotificationCenter.default.post(name: .turnIntoServerStatusIconShouldRefresh, object: self)
     }
 
     func start() {

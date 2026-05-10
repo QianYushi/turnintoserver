@@ -6,6 +6,7 @@ extension Notification.Name {
     static let turnIntoServerHotKeysDidChange = Notification.Name("turnIntoServerHotKeysDidChange")
     static let turnIntoServerHotKeyRecordingDidStart = Notification.Name("turnIntoServerHotKeyRecordingDidStart")
     static let turnIntoServerHotKeyRecordingDidEnd = Notification.Name("turnIntoServerHotKeyRecordingDidEnd")
+    static let turnIntoServerStatusIconShouldRefresh = Notification.Name("turnIntoServerStatusIconShouldRefresh")
 }
 
 struct HotKeyShortcut: Codable, Equatable {
@@ -43,6 +44,15 @@ struct HotKeyShortcut: Codable, Equatable {
         return parts.joined() + keyDisplay
     }
 
+    var menuDisplayString: String {
+        let modifiers = displayString.dropLast(keyDisplay.count)
+        guard !modifiers.isEmpty else {
+            return keyDisplay
+        }
+
+        return "\(modifiers) \(keyDisplay)"
+    }
+
     init(keyCode: UInt32, modifierFlags: UInt32, keyDisplay: String) {
         self.keyCode = keyCode
         self.modifierFlags = modifierFlags
@@ -78,18 +88,50 @@ struct HotKeyShortcut: Codable, Equatable {
         return shortcut
     }
 
-    func save(defaultsKey: String, defaults: UserDefaults = .standard) {
+    static func loadOptional(
+        defaultsKey: String,
+        disabledDefaultsKey: String,
+        default defaultShortcut: HotKeyShortcut,
+        defaults: UserDefaults = .standard
+    ) -> HotKeyShortcut? {
+        guard !defaults.bool(forKey: disabledDefaultsKey) else {
+            return nil
+        }
+
+        return load(defaultsKey: defaultsKey, default: defaultShortcut, defaults: defaults)
+    }
+
+    func save(
+        defaultsKey: String,
+        disabledDefaultsKey: String? = nil,
+        defaults: UserDefaults = .standard
+    ) {
         guard let data = try? JSONEncoder().encode(self) else {
             return
         }
 
         defaults.set(data, forKey: defaultsKey)
+        if let disabledDefaultsKey {
+            defaults.set(false, forKey: disabledDefaultsKey)
+        }
+        NotificationCenter.default.post(name: .turnIntoServerHotKeysDidChange, object: nil)
+    }
+
+    static func clear(
+        defaultsKey: String,
+        disabledDefaultsKey: String,
+        defaults: UserDefaults = .standard
+    ) {
+        defaults.removeObject(forKey: defaultsKey)
+        defaults.set(true, forKey: disabledDefaultsKey)
         NotificationCenter.default.post(name: .turnIntoServerHotKeysDidChange, object: nil)
     }
 
     static func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: AppDefaultsKey.serverModeHotKey)
         defaults.removeObject(forKey: AppDefaultsKey.batteryModeHotKey)
+        defaults.removeObject(forKey: AppDefaultsKey.serverModeHotKeyDisabled)
+        defaults.removeObject(forKey: AppDefaultsKey.batteryModeHotKeyDisabled)
         NotificationCenter.default.post(name: .turnIntoServerHotKeysDidChange, object: nil)
     }
 
@@ -269,17 +311,24 @@ final class HotKeyManager {
             return
         }
 
-        let serverModeShortcut = HotKeyShortcut.load(
+        let serverModeShortcut = HotKeyShortcut.loadOptional(
             defaultsKey: AppDefaultsKey.serverModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled,
             default: .defaultServerMode
         )
-        let batteryModeShortcut = HotKeyShortcut.load(
+        let batteryModeShortcut = HotKeyShortcut.loadOptional(
             defaultsKey: AppDefaultsKey.batteryModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled,
             default: .defaultBatteryMode
         )
 
-        registerHotKey(.toggleServerMode, shortcut: serverModeShortcut, storage: &toggleServerModeHotKey)
-        registerHotKey(.toggleBatteryServerMode, shortcut: batteryModeShortcut, storage: &toggleBatteryServerModeHotKey)
+        if let serverModeShortcut {
+            registerHotKey(.toggleServerMode, shortcut: serverModeShortcut, storage: &toggleServerModeHotKey)
+        }
+
+        if let batteryModeShortcut {
+            registerHotKey(.toggleBatteryServerMode, shortcut: batteryModeShortcut, storage: &toggleBatteryServerModeHotKey)
+        }
     }
 
     private func unregisterHotKeys() {

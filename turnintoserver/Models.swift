@@ -9,6 +9,8 @@ enum AppDefaultsKey {
     static let hotKeysEnabled = "hotKeysEnabled"
     static let serverModeHotKey = "serverModeHotKey"
     static let batteryModeHotKey = "batteryModeHotKey"
+    static let serverModeHotKeyDisabled = "serverModeHotKeyDisabled"
+    static let batteryModeHotKeyDisabled = "batteryModeHotKeyDisabled"
 }
 
 enum AppText {
@@ -178,6 +180,10 @@ enum AppText {
         localized(chinese: "录制", english: "Record")
     }
 
+    static var shortcutNotSet: String {
+        localized(chinese: "未设置", english: "Not Set")
+    }
+
     static var recordingShortcut: String {
         localized(chinese: "按下新的快捷键…", english: "Press the new shortcut...")
     }
@@ -187,7 +193,10 @@ enum AppText {
     }
 
     static var shortcutRecordHint: String {
-        localized(chinese: "录制时至少包含一个修饰键。", english: "Use at least one modifier key when recording.")
+        localized(
+            chinese: "录制时至少包含一个修饰键；录制中点击别处会设为未设置。",
+            english: "Use at least one modifier key when recording; click away while recording to leave it unset."
+        )
     }
 
     static var shortcutsOn: String {
@@ -202,12 +211,28 @@ enum AppText {
         localized(chinese: "低电量提醒", english: "Low Battery Alerts")
     }
 
+    static var iMessageChannelTitle: String {
+        "iMessage"
+    }
+
+    static var barkChannelTitle: String {
+        "Bark"
+    }
+
     static var iMessageRecipientPlaceholder: String {
         localized(chinese: "手机号或 Apple ID 邮箱", english: "Phone number or Apple ID email")
     }
 
     static var barkPushEndpointPlaceholder: String {
         localized(chinese: "Bark 推送地址，例如 https://api.day.app/你的key", english: "Bark push URL, e.g. https://api.day.app/your-key")
+    }
+
+    static var testNotificationChannel: String {
+        localized(chinese: "测试", english: "Test")
+    }
+
+    static var ok: String {
+        localized(chinese: "好", english: "OK")
     }
 
     static var sendTestMessage: String {
@@ -222,6 +247,28 @@ enum AppText {
         localized(
             chinese: "填写 iMessage 或 Bark 任一通道并测试成功后，才能开启低电量提醒。两个都填写时会同时推送。低于 50% 和 20% 时各发送一次。",
             english: "Configure and successfully test iMessage or Bark before enabling alerts. If both are set, both will be used. Sends once below 50% and once below 20%."
+        )
+    }
+
+    static var iMessageInfoTitle: String {
+        "iMessage"
+    }
+
+    static var iMessageInfoMessage: String {
+        localized(
+            chinese: "填写可以接收 iMessage 的手机号或 Apple ID 邮箱，然后点击测试。首次发送时，macOS 可能会要求允许 turnintoserver 控制 Messages。\n\n测试成功后，低电量提醒才可以开启。Server Mode 正在运行、允许电池模式且当前使用电池时，电量低于 50% 和 20% 会各提醒一次。",
+            english: "Enter a phone number or Apple ID email that can receive iMessage, then click Test. The first send may ask macOS permission for turnintoserver to control Messages.\n\nAfter a successful test, low battery alerts can be enabled. When Server Mode is running, battery mode is allowed, and this Mac is on battery power, alerts send once below 50% and once below 20%."
+        )
+    }
+
+    static var barkInfoTitle: String {
+        "Bark"
+    }
+
+    static var barkInfoMessage: String {
+        localized(
+            chinese: "填写 Bark 推送地址，例如 https://api.day.app/你的key，然后点击测试。\n\n测试成功后，低电量提醒才可以开启。Server Mode 正在运行、允许电池模式且当前使用电池时，电量低于 50% 和 20% 会各提醒一次。如果 iMessage 和 Bark 都填写并测试成功，会同时推送。",
+            english: "Enter your Bark push URL, for example https://api.day.app/your-key, then click Test.\n\nAfter a successful test, low battery alerts can be enabled. When Server Mode is running, battery mode is allowed, and this Mac is on battery power, alerts send once below 50% and once below 20%. If iMessage and Bark are both configured and tested, both will be used."
         )
     }
 

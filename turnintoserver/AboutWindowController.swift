@@ -10,10 +10,12 @@ final class AboutWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = AppText.aboutApplication
         window.styleMask = [.titled, .closable]
+        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 500, height: 380)
-        window.contentMaxSize = NSSize(width: 500, height: 380)
-        window.setContentSize(NSSize(width: 500, height: 380))
+        window.contentMinSize = NSSize(width: 500, height: 420)
+        window.contentMaxSize = NSSize(width: 500, height: 420)
+        window.setContentSize(NSSize(width: 500, height: 420))
+        Self.configureCenteredTitle(for: window)
         window.center()
 
         super.init(window: window)
@@ -29,6 +31,28 @@ final class AboutWindowController: NSWindowController {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
     }
+
+    private static func configureCenteredTitle(for window: NSWindow) {
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let titlebarView = closeButton.superview else {
+            return
+        }
+
+        let titleLabel = NSTextField(labelWithString: AppText.aboutApplication)
+        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.alignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        titlebarView.addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            titleLabel.centerXAnchor.constraint(equalTo: titlebarView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: titlebarView.leadingAnchor, constant: 90),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: titlebarView.trailingAnchor, constant: -90)
+        ])
+    }
 }
 
 @MainActor
@@ -39,9 +63,9 @@ final class LowBatterySettingsWindowController: NSWindowController {
         window.title = AppText.iMessageSettingsTitle
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 460, height: 330)
-        window.contentMaxSize = NSSize(width: 460, height: 330)
-        window.setContentSize(NSSize(width: 460, height: 330))
+        window.contentMinSize = NSSize(width: 520, height: 230)
+        window.contentMaxSize = NSSize(width: 520, height: 230)
+        window.setContentSize(NSSize(width: 520, height: 230))
         window.center()
 
         super.init(window: window)
@@ -67,9 +91,9 @@ final class ShortcutSettingsWindowController: NSWindowController {
         window.title = AppText.shortcutHintsTitle
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 460, height: 190)
-        window.contentMaxSize = NSSize(width: 460, height: 190)
-        window.setContentSize(NSSize(width: 460, height: 190))
+        window.contentMinSize = NSSize(width: 460, height: 160)
+        window.contentMaxSize = NSSize(width: 460, height: 160)
+        window.setContentSize(NSSize(width: 460, height: 160))
         window.center()
 
         super.init(window: window)
@@ -96,35 +120,34 @@ private struct AboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text(AppText.aboutApplication)
-                .font(.system(size: 16, weight: .semibold))
-                .frame(maxWidth: .infinity, alignment: .center)
-
+        VStack(spacing: 18) {
+            Spacer(minLength: 2)
             header
-            Divider()
             updateSection
+            Spacer(minLength: 0)
         }
-        .padding(EdgeInsets(top: 24, leading: 26, bottom: 22, trailing: 26))
-        .frame(width: 500, height: 380)
+        .padding(EdgeInsets(top: 36, leading: 34, bottom: 28, trailing: 34))
+        .frame(width: 500, height: 420)
     }
 
     private var header: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 72, height: 72)
-                .cornerRadius(16)
+                .frame(width: 92, height: 92)
+                .cornerRadius(22)
+                .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 3)
 
             VStack(spacing: 4) {
                 Text("turnintoserver")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 28, weight: .bold))
                 Text(AppText.currentVersion(PreferencesUpdateViewModel.currentVersionDisplay))
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }
+            .multilineTextAlignment(.center)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 7) {
                 Text(AppText.developer("qianyushi"))
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(AppText.githubPrefix)
@@ -134,13 +157,20 @@ private struct AboutView: View {
                     .buttonStyle(.link)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .font(.system(size: 13))
+            .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var updateSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 12) {
+            Divider()
+                .padding(.horizontal, 10)
+
             HStack(spacing: 10) {
+                Spacer()
+
                 Button(AppText.checkForUpdates) {
                     updateModel.checkForUpdates()
                 }
@@ -157,6 +187,7 @@ private struct AboutView: View {
 
             if updateModel.isDownloading {
                 LinearProgressIndicator(value: updateModel.downloadProgress)
+                    .frame(width: 280)
                     .frame(height: 8)
             }
 
@@ -164,7 +195,8 @@ private struct AboutView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
                 .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 }
@@ -180,63 +212,110 @@ struct LowBatteryNotificationSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(AppText.iMessageSettingsTitle)
-                .font(.system(size: 13, weight: .semibold))
-
-            Text(AppText.iMessageSettingsIdle)
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            TextField(AppText.iMessageRecipientPlaceholder, text: $notificationModel.iMessageRecipientAddress)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-
-            HStack(spacing: 10) {
-                Button(AppText.sendTestMessage) {
-                    notificationModel.sendIMessageTest()
-                }
-                .disabled(notificationModel.isSendingIMessageTest)
-
-                Text(notificationModel.iMessageStatusText)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 16) {
+            notificationChannelRow(
+                title: AppText.iMessageChannelTitle,
+                infoTitle: AppText.iMessageInfoTitle,
+                infoMessage: AppText.iMessageInfoMessage,
+                placeholder: AppText.iMessageRecipientPlaceholder,
+                text: $notificationModel.iMessageRecipientAddress,
+                isTesting: notificationModel.isSendingIMessageTest,
+                statusText: notificationModel.iMessageStatusText
+            ) {
+                notificationModel.sendIMessageTest()
             }
 
             Divider()
 
-            TextField(AppText.barkPushEndpointPlaceholder, text: $notificationModel.barkPushEndpoint)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-
-            HStack(spacing: 10) {
-                Button(AppText.sendBarkTest) {
-                    notificationModel.sendBarkTest()
-                }
-                .disabled(notificationModel.isSendingBarkTest)
-
-                Text(notificationModel.barkStatusText)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if !notificationModel.canEnableLowBatteryNotifications {
-                Text(AppText.lowBatteryNotificationsRequireTest)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            notificationChannelRow(
+                title: AppText.barkChannelTitle,
+                infoTitle: AppText.barkInfoTitle,
+                infoMessage: AppText.barkInfoMessage,
+                placeholder: AppText.barkPushEndpointPlaceholder,
+                text: $notificationModel.barkPushEndpoint,
+                isTesting: notificationModel.isSendingBarkTest,
+                statusText: notificationModel.barkStatusText
+            ) {
+                notificationModel.sendBarkTest()
             }
         }
-        .padding(16)
-        .frame(width: 460, height: 330, alignment: .topLeading)
+        .padding(EdgeInsets(top: 22, leading: 24, bottom: 20, trailing: 24))
+        .frame(width: 520, height: 230, alignment: .topLeading)
         .onReceive(notificationModel.$canEnableLowBatteryNotifications) { canEnable in
             if !canEnable, appState.lowBatteryNotificationsEnabled {
                 appState.setLowBatteryNotificationsEnabled(false)
             }
         }
+    }
+
+    private func notificationChannelRow(
+        title: String,
+        infoTitle: String,
+        infoMessage: String,
+        placeholder: String,
+        text: Binding<String>,
+        isTesting: Bool,
+        statusText: String,
+        onTest: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+
+                InfoCircleButton {
+                    showInfo(title: infoTitle, message: infoMessage)
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                TextField(placeholder, text: text)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+
+                Button(AppText.testNotificationChannel) {
+                    onTest()
+                }
+                .disabled(isTesting)
+            }
+
+            if !statusText.isEmpty {
+                Text(statusText)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func showInfo(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: AppText.ok)
+        alert.runModal()
+    }
+}
+
+private struct InfoCircleButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.75), lineWidth: 1)
+                Text("i")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            .frame(width: 15, height: 15)
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 
@@ -274,21 +353,17 @@ struct ShortcutSettingsView: View {
                     shortcutModel.resetShortcuts()
                 }
 
-                Text(shortcutModel.statusText)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer()
             }
         }
         .padding(16)
-        .frame(width: 460, height: 190, alignment: .topLeading)
+        .frame(width: 460, height: 160, alignment: .topLeading)
     }
 }
 
 private struct ShortcutRow: View {
     let title: String
-    let shortcut: HotKeyShortcut
+    let shortcut: HotKeyShortcut?
     let isRecording: Bool
     let onRecord: () -> Void
 
@@ -297,8 +372,9 @@ private struct ShortcutRow: View {
             Text(title)
                 .frame(width: 150, alignment: .leading)
 
-            Text(isRecording ? AppText.recordingShortcut : shortcut.displayString)
+            Text(isRecording ? AppText.recordingShortcut : shortcutDisplayText)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(shortcut == nil && !isRecording ? .secondary : .primary)
                 .frame(width: 120, alignment: .leading)
 
             Button(AppText.recordShortcut) {
@@ -308,6 +384,10 @@ private struct ShortcutRow: View {
 
             Spacer()
         }
+    }
+
+    private var shortcutDisplayText: String {
+        shortcut?.displayString ?? AppText.shortcutNotSet
     }
 }
 
@@ -337,7 +417,7 @@ private final class NotificationSettingsViewModel: ObservableObject {
             let trimmedValue = iMessageRecipientAddress.trimmingCharacters(in: .whitespacesAndNewlines)
             defaults.set(iMessageRecipientAddress, forKey: AppDefaultsKey.iMessageRecipientAddress)
             if trimmedValue != verifiedIMessageRecipientAddress {
-                iMessageStatusText = trimmedValue.isEmpty ? AppText.iMessageSettingsIdle : AppText.iMessageNeedsRetest
+                iMessageStatusText = trimmedValue.isEmpty ? "" : AppText.iMessageNeedsRetest
             }
             refreshReadiness()
         }
@@ -347,15 +427,15 @@ private final class NotificationSettingsViewModel: ObservableObject {
             let trimmedValue = barkPushEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
             defaults.set(barkPushEndpoint, forKey: AppDefaultsKey.barkPushEndpoint)
             if trimmedValue != verifiedBarkPushEndpoint {
-                barkStatusText = trimmedValue.isEmpty ? AppText.iMessageSettingsIdle : AppText.barkNeedsRetest
+                barkStatusText = trimmedValue.isEmpty ? "" : AppText.barkNeedsRetest
             }
             refreshReadiness()
         }
     }
     @Published var isSendingIMessageTest = false
     @Published var isSendingBarkTest = false
-    @Published var iMessageStatusText = AppText.iMessageSettingsIdle
-    @Published var barkStatusText = AppText.iMessageSettingsIdle
+    @Published var iMessageStatusText = ""
+    @Published var barkStatusText = ""
     @Published private(set) var canEnableLowBatteryNotifications = false
 
     private let defaults: UserDefaults
@@ -475,27 +555,37 @@ private final class ShortcutSettingsViewModel: ObservableObject {
         case batteryMode
     }
 
-    @Published var serverModeShortcut: HotKeyShortcut
-    @Published var batteryModeShortcut: HotKeyShortcut
+    @Published var serverModeShortcut: HotKeyShortcut?
+    @Published var batteryModeShortcut: HotKeyShortcut?
     @Published var recordingTarget: Target?
     @Published var statusText = AppText.shortcutRecordHint
 
-    private var eventMonitor: Any?
+    private var keyEventMonitor: Any?
+    private var localMouseEventMonitor: Any?
+    private var globalMouseEventMonitor: Any?
 
     init() {
-        serverModeShortcut = HotKeyShortcut.load(
+        serverModeShortcut = HotKeyShortcut.loadOptional(
             defaultsKey: AppDefaultsKey.serverModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled,
             default: .defaultServerMode
         )
-        batteryModeShortcut = HotKeyShortcut.load(
+        batteryModeShortcut = HotKeyShortcut.loadOptional(
             defaultsKey: AppDefaultsKey.batteryModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled,
             default: .defaultBatteryMode
         )
     }
 
     deinit {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
+        if let keyEventMonitor {
+            NSEvent.removeMonitor(keyEventMonitor)
+        }
+        if let localMouseEventMonitor {
+            NSEvent.removeMonitor(localMouseEventMonitor)
+        }
+        if let globalMouseEventMonitor {
+            NSEvent.removeMonitor(globalMouseEventMonitor)
         }
         NotificationCenter.default.post(name: .turnIntoServerHotKeyRecordingDidEnd, object: nil)
     }
@@ -505,9 +595,22 @@ private final class ShortcutSettingsViewModel: ObservableObject {
         recordingTarget = target
         statusText = AppText.recordingShortcut
         NotificationCenter.default.post(name: .turnIntoServerHotKeyRecordingDidStart, object: nil)
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKeyEvent(event)
             return nil
+        }
+        localMouseEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.clearRecordingShortcut()
+            return event
+        }
+        globalMouseEventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.clearRecordingShortcut()
+            }
         }
     }
 
@@ -517,6 +620,35 @@ private final class ShortcutSettingsViewModel: ObservableObject {
         serverModeShortcut = .defaultServerMode
         batteryModeShortcut = .defaultBatteryMode
         statusText = AppText.shortcutRecordHint
+    }
+
+    private func clearShortcut(_ target: Target) {
+        stopRecording()
+
+        switch target {
+        case .serverMode:
+            HotKeyShortcut.clear(
+                defaultsKey: AppDefaultsKey.serverModeHotKey,
+                disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled
+            )
+            serverModeShortcut = nil
+        case .batteryMode:
+            HotKeyShortcut.clear(
+                defaultsKey: AppDefaultsKey.batteryModeHotKey,
+                disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled
+            )
+            batteryModeShortcut = nil
+        }
+
+        statusText = AppText.shortcutRecordHint
+    }
+
+    private func clearRecordingShortcut() {
+        guard let recordingTarget else {
+            return
+        }
+
+        clearShortcut(recordingTarget)
     }
 
     private func handleKeyEvent(_ event: NSEvent) {
@@ -533,10 +665,16 @@ private final class ShortcutSettingsViewModel: ObservableObject {
 
         switch recordingTarget {
         case .serverMode:
-            shortcut.save(defaultsKey: AppDefaultsKey.serverModeHotKey)
+            shortcut.save(
+                defaultsKey: AppDefaultsKey.serverModeHotKey,
+                disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled
+            )
             serverModeShortcut = shortcut
         case .batteryMode:
-            shortcut.save(defaultsKey: AppDefaultsKey.batteryModeHotKey)
+            shortcut.save(
+                defaultsKey: AppDefaultsKey.batteryModeHotKey,
+                disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled
+            )
             batteryModeShortcut = shortcut
         case .none:
             break
@@ -547,14 +685,26 @@ private final class ShortcutSettingsViewModel: ObservableObject {
     }
 
     private func stopRecording() {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-            self.eventMonitor = nil
-        }
+        removeEventMonitors()
 
         if recordingTarget != nil {
             recordingTarget = nil
             NotificationCenter.default.post(name: .turnIntoServerHotKeyRecordingDidEnd, object: nil)
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let keyEventMonitor {
+            NSEvent.removeMonitor(keyEventMonitor)
+            self.keyEventMonitor = nil
+        }
+        if let localMouseEventMonitor {
+            NSEvent.removeMonitor(localMouseEventMonitor)
+            self.localMouseEventMonitor = nil
+        }
+        if let globalMouseEventMonitor {
+            NSEvent.removeMonitor(globalMouseEventMonitor)
+            self.globalMouseEventMonitor = nil
         }
     }
 }
