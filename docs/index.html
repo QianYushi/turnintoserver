@@ -1,22 +1,47 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TurnIntoServer - Use a MacBook as a closed-lid server</title>
-  <meta name="description" content="TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed while setting the built-in display to zero brightness.">
+  <meta name="description" content="TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed while setting the built-in display to zero brightness." data-i18n-content="meta.description">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://qianyushi.github.io/turnintoserver/">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="TurnIntoServer - Use a MacBook as a closed-lid server">
-  <meta property="og:description" content="Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook.">
+  <meta property="og:title" content="TurnIntoServer - Use a MacBook as a closed-lid server" data-i18n-content="meta.title">
+  <meta property="og:description" content="Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook." data-i18n-content="meta.ogDescription">
   <meta property="og:url" content="https://qianyushi.github.io/turnintoserver/">
-  <meta property="og:image" content="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png">
+  <meta property="og:image" content="https://qianyushi.github.io/turnintoserver/icon.png">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="zh_CN">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="TurnIntoServer - Use a MacBook as a closed-lid server">
-  <meta name="twitter:description" content="A small macOS menu bar app for running a MacBook as a closed-lid server.">
-  <meta name="twitter:image" content="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png">
-  <link rel="icon" href="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png" type="image/png">
+  <meta name="twitter:title" content="TurnIntoServer - Use a MacBook as a closed-lid server" data-i18n-content="meta.title">
+  <meta name="twitter:description" content="A small macOS menu bar app for running a MacBook as a closed-lid server." data-i18n-content="meta.twitterDescription">
+  <meta name="twitter:image" content="https://qianyushi.github.io/turnintoserver/icon.png">
+  <link rel="icon" href="icon.png" type="image/png">
+  <script>
+    (function () {
+      function savedLanguage() {
+        try {
+          return window.localStorage.getItem("turnintoserver-language");
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function browserLanguage() {
+        var languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"];
+        return languages.some(function (language) {
+          return /^zh\b/i.test(language);
+        }) ? "zh" : "en";
+      }
+
+      var saved = savedLanguage();
+      var language = saved === "zh" || saved === "en" ? saved : browserLanguage();
+      document.documentElement.lang = language === "zh" ? "zh-Hans" : "en";
+      document.documentElement.dataset.lang = language;
+    })();
+  </script>
   <style>
     :root {
       --paper: #f7f6f1;
@@ -103,6 +128,37 @@
 
     .nav-links a:hover {
       color: var(--ink);
+    }
+
+    .language-picker {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .language-picker select {
+      min-height: 36px;
+      padding: 0 30px 0 11px;
+      border: 1px solid rgba(21, 24, 31, 0.14);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     .button {
@@ -600,6 +656,13 @@
         font-size: 14px;
       }
 
+      .language-picker select {
+        min-height: 34px;
+        max-width: 88px;
+        padding-right: 24px;
+        font-size: 13px;
+      }
+
       h1 {
         font-size: 34px;
         max-width: 100%;
@@ -653,7 +716,7 @@
       }
     }
   </style>
-  <script type="application/ld+json">
+  <script type="application/ld+json" id="software-schema">
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
@@ -664,7 +727,7 @@
       "url": "https://qianyushi.github.io/turnintoserver/",
       "downloadUrl": "https://github.com/QianYushi/turnintoserver/releases/latest",
       "codeRepository": "https://github.com/QianYushi/turnintoserver",
-      "image": "https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png",
+      "image": "https://qianyushi.github.io/turnintoserver/icon.png",
       "softwareVersion": "1.1",
       "author": {
         "@type": "Person",
@@ -680,16 +743,23 @@
 </head>
 <body>
   <header class="site-header">
-    <nav class="nav" aria-label="Primary navigation">
-      <a class="brand" href="#top" aria-label="TurnIntoServer home">
-        <img src="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png" alt="">
+    <nav class="nav" aria-label="Primary navigation" data-i18n-aria-label="nav.aria">
+      <a class="brand" href="#top" aria-label="TurnIntoServer home" data-i18n-aria-label="brand.aria">
+        <img src="icon.png" alt="">
         <span>TurnIntoServer</span>
       </a>
       <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#install">Install</a>
-        <a href="https://github.com/QianYushi/turnintoserver">GitHub</a>
-        <a class="button secondary" href="https://github.com/QianYushi/turnintoserver/releases/latest">Download</a>
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="#install" data-i18n="nav.install">Install</a>
+        <a href="https://github.com/QianYushi/turnintoserver" data-i18n="nav.github">GitHub</a>
+        <label class="language-picker" for="language-select">
+          <span class="visually-hidden" data-i18n="nav.language">Language</span>
+          <select id="language-select" aria-label="Language" data-i18n-aria-label="nav.language">
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+          </select>
+        </label>
+        <a class="button secondary" href="https://github.com/QianYushi/turnintoserver/releases/latest" data-i18n="nav.download">Download</a>
       </div>
     </nav>
   </header>
@@ -703,57 +773,57 @@
 
       <div class="hero-inner">
         <div class="hero-copy">
-          <img class="app-mark" src="https://raw.githubusercontent.com/QianYushi/turnintoserver/main/icon.png" alt="TurnIntoServer app icon">
-          <h1 id="hero-title">Use a MacBook as a closed-lid server.</h1>
-          <p class="lead">TurnIntoServer keeps a plugged-in MacBook running after the lid closes, while setting only the built-in display to zero brightness.</p>
-          <div class="hero-actions" aria-label="Project actions">
-            <a class="button primary" href="https://github.com/QianYushi/turnintoserver/releases/latest">Download for macOS</a>
-            <a class="button secondary" href="https://github.com/QianYushi/turnintoserver">View on GitHub</a>
+          <img class="app-mark" src="icon.png" alt="TurnIntoServer app icon" data-i18n-alt="hero.iconAlt">
+          <h1 id="hero-title" data-i18n="hero.title">Use a MacBook as a closed-lid server.</h1>
+          <p class="lead" data-i18n="hero.lead">TurnIntoServer keeps a plugged-in MacBook running after the lid closes, while setting only the built-in display to zero brightness.</p>
+          <div class="hero-actions" aria-label="Project actions" data-i18n-aria-label="hero.actionsAria">
+            <a class="button primary" href="https://github.com/QianYushi/turnintoserver/releases/latest" data-i18n="hero.download">Download for macOS</a>
+            <a class="button secondary" href="https://github.com/QianYushi/turnintoserver" data-i18n="hero.github">View on GitHub</a>
           </div>
-          <p class="requirements">Intel Mac: macOS 10.15+. Apple Silicon Mac: macOS 11+.</p>
+          <p class="requirements" data-i18n="hero.requirements">Intel Mac: macOS 10.15+. Apple Silicon Mac: macOS 11+.</p>
         </div>
 
-        <figure class="screenshot" aria-label="TurnIntoServer menu bar screenshot">
+        <figure class="screenshot" aria-label="TurnIntoServer menu bar screenshot" data-i18n-aria-label="mock.aria">
           <div class="menu-bar" aria-hidden="true">
-            <span>Wi-Fi</span>
-            <span>Battery</span>
-            <span class="status-pill"><span class="status-dot">S</span> ON</span>
+            <span data-i18n="mock.wifi">Wi-Fi</span>
+            <span data-i18n="mock.battery">Battery</span>
+            <span class="status-pill"><span class="status-dot">S</span> <span data-i18n="mock.on">ON</span></span>
           </div>
           <div class="menu">
             <div class="menu-row">
               <span class="tiny-dot" aria-hidden="true"></span>
-              <span>Stop Server Mode</span>
+              <span data-i18n="mock.stop">Stop Server Mode</span>
               <span></span>
             </div>
             <div class="menu-row muted">
               <span></span>
-              <span>Keeps running with lid closed</span>
+              <span data-i18n="mock.status">Keeps running with lid closed</span>
               <span></span>
             </div>
             <div class="menu-row muted">
               <span></span>
-              <span>Running for 2h 18m</span>
+              <span data-i18n="mock.running">Running for 2h 18m</span>
               <span></span>
             </div>
             <div class="menu-rule"></div>
             <div class="menu-row">
               <span class="check" aria-hidden="true"></span>
-              <span>Allow Server Mode on Battery</span>
+              <span data-i18n="mock.batteryMode">Allow Server Mode on Battery</span>
               <span></span>
             </div>
             <div class="menu-row">
               <span class="check" aria-hidden="true"></span>
-              <span>Low Battery Alerts</span>
-              <span class="set-button">Set Up</span>
+              <span data-i18n="mock.lowBattery">Low Battery Alerts</span>
+              <span class="set-button" data-i18n="mock.setup">Set Up</span>
             </div>
             <div class="menu-row">
               <span class="check" aria-hidden="true"></span>
-              <span>Enable Shortcuts</span>
-              <span class="set-button">Set Up</span>
+              <span data-i18n="mock.shortcuts">Enable Shortcuts</span>
+              <span class="set-button" data-i18n="mock.setup">Set Up</span>
             </div>
             <div class="menu-row">
               <span></span>
-              <span>Open at Login</span>
+              <span data-i18n="mock.login">Open at Login</span>
               <span></span>
             </div>
           </div>
@@ -762,75 +832,314 @@
     </section>
 
     <section class="section" id="features" aria-labelledby="features-title">
-      <h2 id="features-title">Built for the closed-lid server use case.</h2>
-      <p class="section-intro">It is not a generic keep-awake utility. The app focuses on the common MacBook-as-server setup: power connected, lid closed, services still reachable, and the hidden built-in display no longer emitting light.</p>
+      <h2 id="features-title" data-i18n="features.title">Built for the closed-lid server use case.</h2>
+      <p class="section-intro" data-i18n="features.intro">It is not a generic keep-awake utility. The app focuses on the common MacBook-as-server setup: power connected, lid closed, services still reachable, and the hidden built-in display no longer emitting light.</p>
       <div class="feature-grid">
         <article class="feature">
-          <h3>Keep services running</h3>
-          <p>Run SSH, remote desktop, local network tools, download jobs, media services, and development servers after closing the lid.</p>
+          <h3 data-i18n="features.keepTitle">Keep services running</h3>
+          <p data-i18n="features.keepText">Run SSH, remote desktop, local network tools, download jobs, media services, and development servers after closing the lid.</p>
         </article>
         <article class="feature">
-          <h3>Dim the built-in display</h3>
-          <p>When the lid closes, TurnIntoServer tries to set the MacBook display to zero brightness without intentionally blanking external monitors.</p>
+          <h3 data-i18n="features.dimTitle">Dim the built-in display</h3>
+          <p data-i18n="features.dimText">When the lid closes, TurnIntoServer tries to set the MacBook display to zero brightness without intentionally blanking external monitors.</p>
         </article>
         <article class="feature">
-          <h3>Respect battery use</h3>
-          <p>Server Mode pauses on battery by default, resumes when power returns, and can optionally keep running on battery when you need it.</p>
+          <h3 data-i18n="features.batteryTitle">Respect battery use</h3>
+          <p data-i18n="features.batteryText">Server Mode pauses on battery by default, resumes when power returns, and can optionally keep running on battery when you need it.</p>
         </article>
         <article class="feature">
-          <h3>Low battery alerts</h3>
-          <p>When battery mode is enabled, the app can send low battery alerts through iMessage or Bark at 50% and 20%.</p>
+          <h3 data-i18n="features.alertsTitle">Low battery alerts</h3>
+          <p data-i18n="features.alertsText">When battery mode is enabled, the app can send low battery alerts through iMessage or Bark at 50% and 20%.</p>
         </article>
         <article class="feature">
-          <h3>Menu bar workflow</h3>
-          <p>The app lives in the macOS menu bar, with status colors, running time, launch-at-login, update checking, and custom shortcuts.</p>
+          <h3 data-i18n="features.menuTitle">Menu bar workflow</h3>
+          <p data-i18n="features.menuText">The app lives in the macOS menu bar, with status colors, running time, launch-at-login, update checking, and custom shortcuts.</p>
         </article>
         <article class="feature">
-          <h3>Open source</h3>
-          <p>The Swift and SwiftUI source code is available on GitHub, together with build scripts and release notes.</p>
+          <h3 data-i18n="features.openTitle">Open source</h3>
+          <p data-i18n="features.openText">The Swift and SwiftUI source code is available on GitHub, together with build scripts and release notes.</p>
         </article>
       </div>
     </section>
 
     <section class="section" id="install" aria-labelledby="install-title">
-      <h2 id="install-title">Install in a minute.</h2>
-      <p class="section-intro">Download the latest DMG from GitHub Releases, drag the app into Applications, then turn on Server Mode from the menu bar.</p>
+      <h2 id="install-title" data-i18n="install.title">Install in a minute.</h2>
+      <p class="section-intro" data-i18n="install.intro">Download the latest DMG from GitHub Releases, drag the app into Applications, then turn on Server Mode from the menu bar.</p>
       <div class="steps">
         <article class="step">
-          <h3>Download</h3>
-          <p>Get the latest TurnIntoServer DMG from GitHub Releases.</p>
+          <h3 data-i18n="install.downloadTitle">Download</h3>
+          <p data-i18n="install.downloadText">Get the latest TurnIntoServer DMG from GitHub Releases.</p>
         </article>
         <article class="step">
-          <h3>Install</h3>
-          <p>Open the DMG and drag turnintoserver.app into Applications.</p>
+          <h3 data-i18n="install.installTitle">Install</h3>
+          <p data-i18n="install.installText">Open the DMG and drag turnintoserver.app into Applications.</p>
         </article>
         <article class="step">
-          <h3>Enable</h3>
-          <p>Launch the app and start Server Mode from the menu bar.</p>
+          <h3 data-i18n="install.enableTitle">Enable</h3>
+          <p data-i18n="install.enableText">Launch the app and start Server Mode from the menu bar.</p>
         </article>
         <article class="step">
-          <h3>Close the lid</h3>
-          <p>Keep the MacBook plugged in, on a desk, with normal airflow.</p>
+          <h3 data-i18n="install.lidTitle">Close the lid</h3>
+          <p data-i18n="install.lidText">Keep the MacBook plugged in, on a desk, with normal airflow.</p>
         </article>
       </div>
     </section>
 
     <section class="download-band" aria-labelledby="download-title">
       <div>
-        <h2 id="download-title">Ready to turn a MacBook into a small server?</h2>
-        <p>Free, open source, and built for the macOS menu bar.</p>
+        <h2 id="download-title" data-i18n="download.title">Ready to turn a MacBook into a small server?</h2>
+        <p data-i18n="download.text">Free, open source, and built for the macOS menu bar.</p>
       </div>
-      <a class="button" href="https://github.com/QianYushi/turnintoserver/releases/latest">Download latest release</a>
+      <a class="button" href="https://github.com/QianYushi/turnintoserver/releases/latest" data-i18n="download.button">Download latest release</a>
     </section>
   </main>
 
   <footer class="site-footer">
-    <span>TurnIntoServer by qianyushi.</span>
+    <span data-i18n="footer.byline">TurnIntoServer by qianyushi.</span>
     <div class="footer-links">
-      <a href="https://github.com/QianYushi/turnintoserver">GitHub repository</a>
-      <a href="https://github.com/QianYushi/turnintoserver/releases/latest">Latest release</a>
-      <a href="https://github.com/QianYushi/turnintoserver/blob/main/README.en.md">README</a>
+      <a href="https://github.com/QianYushi/turnintoserver" data-i18n="footer.github">GitHub repository</a>
+      <a href="https://github.com/QianYushi/turnintoserver/releases/latest" data-i18n="footer.release">Latest release</a>
+      <a href="https://github.com/QianYushi/turnintoserver/blob/main/README.en.md" data-readme-link data-i18n="footer.readme">README</a>
     </div>
   </footer>
+  <script>
+    (function () {
+      var STORAGE_KEY = "turnintoserver-language";
+      var translations = {
+        en: {
+          "meta.title": "TurnIntoServer - Use a MacBook as a closed-lid server",
+          "meta.description": "TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed while setting the built-in display to zero brightness.",
+          "meta.ogDescription": "Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook.",
+          "meta.twitterDescription": "A small macOS menu bar app for running a MacBook as a closed-lid server.",
+          "schema.description": "A macOS menu bar app that helps use a MacBook as a closed-lid server while setting the built-in display to zero brightness.",
+          "nav.aria": "Primary navigation",
+          "brand.aria": "TurnIntoServer home",
+          "nav.features": "Features",
+          "nav.install": "Install",
+          "nav.github": "GitHub",
+          "nav.language": "Language",
+          "nav.download": "Download",
+          "hero.iconAlt": "TurnIntoServer app icon",
+          "hero.title": "Use a MacBook as a closed-lid server.",
+          "hero.lead": "TurnIntoServer keeps a plugged-in MacBook running after the lid closes, while setting only the built-in display to zero brightness.",
+          "hero.actionsAria": "Project actions",
+          "hero.download": "Download for macOS",
+          "hero.github": "View on GitHub",
+          "hero.requirements": "Intel Mac: macOS 10.15+. Apple Silicon Mac: macOS 11+.",
+          "mock.aria": "TurnIntoServer menu bar screenshot",
+          "mock.wifi": "Wi-Fi",
+          "mock.battery": "Battery",
+          "mock.on": "ON",
+          "mock.stop": "Stop Server Mode",
+          "mock.status": "Keeps running with lid closed",
+          "mock.running": "Running for 2h 18m",
+          "mock.batteryMode": "Allow Server Mode on Battery",
+          "mock.lowBattery": "Low Battery Alerts",
+          "mock.setup": "Set Up",
+          "mock.shortcuts": "Enable Shortcuts",
+          "mock.login": "Open at Login",
+          "features.title": "Built for the closed-lid server use case.",
+          "features.intro": "It is not a generic keep-awake utility. The app focuses on the common MacBook-as-server setup: power connected, lid closed, services still reachable, and the hidden built-in display no longer emitting light.",
+          "features.keepTitle": "Keep services running",
+          "features.keepText": "Run SSH, remote desktop, local network tools, download jobs, media services, and development servers after closing the lid.",
+          "features.dimTitle": "Dim the built-in display",
+          "features.dimText": "When the lid closes, TurnIntoServer tries to set the MacBook display to zero brightness without intentionally blanking external monitors.",
+          "features.batteryTitle": "Respect battery use",
+          "features.batteryText": "Server Mode pauses on battery by default, resumes when power returns, and can optionally keep running on battery when you need it.",
+          "features.alertsTitle": "Low battery alerts",
+          "features.alertsText": "When battery mode is enabled, the app can send low battery alerts through iMessage or Bark at 50% and 20%.",
+          "features.menuTitle": "Menu bar workflow",
+          "features.menuText": "The app lives in the macOS menu bar, with status colors, running time, launch-at-login, update checking, and custom shortcuts.",
+          "features.openTitle": "Open source",
+          "features.openText": "The Swift and SwiftUI source code is available on GitHub, together with build scripts and release notes.",
+          "install.title": "Install in a minute.",
+          "install.intro": "Download the latest DMG from GitHub Releases, drag the app into Applications, then turn on Server Mode from the menu bar.",
+          "install.downloadTitle": "Download",
+          "install.downloadText": "Get the latest TurnIntoServer DMG from GitHub Releases.",
+          "install.installTitle": "Install",
+          "install.installText": "Open the DMG and drag turnintoserver.app into Applications.",
+          "install.enableTitle": "Enable",
+          "install.enableText": "Launch the app and start Server Mode from the menu bar.",
+          "install.lidTitle": "Close the lid",
+          "install.lidText": "Keep the MacBook plugged in, on a desk, with normal airflow.",
+          "download.title": "Ready to turn a MacBook into a small server?",
+          "download.text": "Free, open source, and built for the macOS menu bar.",
+          "download.button": "Download latest release",
+          "footer.byline": "TurnIntoServer by qianyushi.",
+          "footer.github": "GitHub repository",
+          "footer.release": "Latest release",
+          "footer.readme": "README"
+        },
+        zh: {
+          "meta.title": "TurnIntoServer - 把 MacBook 当作合盖小服务器",
+          "meta.description": "TurnIntoServer 是一个 macOS 菜单栏工具，可以让接电源的 MacBook 合盖后继续运行，并把内建屏幕亮度降到 0。",
+          "meta.ogDescription": "让合盖的 MacBook 继续运行 SSH、远程桌面、本地服务和开发服务器。",
+          "meta.twitterDescription": "一个用于把 MacBook 当作合盖小服务器的 macOS 菜单栏工具。",
+          "schema.description": "一个 macOS 菜单栏工具，帮助你把 MacBook 当作合盖小服务器使用，并把内建屏幕亮度降到 0。",
+          "nav.aria": "主导航",
+          "brand.aria": "TurnIntoServer 首页",
+          "nav.features": "功能",
+          "nav.install": "安装",
+          "nav.github": "GitHub",
+          "nav.language": "语言",
+          "nav.download": "下载",
+          "hero.iconAlt": "TurnIntoServer 应用图标",
+          "hero.title": "把 MacBook 当作合盖小服务器。",
+          "hero.lead": "TurnIntoServer 可以让接电源的 MacBook 合盖后继续运行，同时尽量只把内建屏幕亮度降到 0。",
+          "hero.actionsAria": "项目操作",
+          "hero.download": "下载 macOS 版",
+          "hero.github": "在 GitHub 查看",
+          "hero.requirements": "Intel Mac：macOS 10.15+。Apple Silicon Mac：macOS 11+。",
+          "mock.aria": "TurnIntoServer 菜单栏截图",
+          "mock.wifi": "Wi-Fi",
+          "mock.battery": "电池",
+          "mock.on": "开",
+          "mock.stop": "关闭 Server 模式",
+          "mock.status": "合盖也会保持运行",
+          "mock.running": "已经运行2小时18分钟",
+          "mock.batteryMode": "电池也允许 Server 模式",
+          "mock.lowBattery": "推送低电量通知",
+          "mock.setup": "设置",
+          "mock.shortcuts": "启用快捷键",
+          "mock.login": "开机自动启动",
+          "features.title": "专为合盖服务器场景设计。",
+          "features.intro": "它不是泛用的防睡眠工具，而是聚焦 MacBook 当小服务器的常见用法：接电源、合上盖子、服务继续可访问，同时让藏在盖子里的内建屏幕不再发光。",
+          "features.keepTitle": "服务继续运行",
+          "features.keepText": "合盖后继续运行 SSH、远程桌面、局域网工具、下载任务、媒体服务和开发服务器。",
+          "features.dimTitle": "调暗内建屏幕",
+          "features.dimText": "合盖时，TurnIntoServer 会尽量只把 MacBook 内建屏幕亮度降到 0，不主动熄灭外接显示器。",
+          "features.batteryTitle": "尊重电池状态",
+          "features.batteryText": "Server Mode 默认会在电池供电时暂停，接回电源后自动恢复；需要时也可以手动允许电池模式。",
+          "features.alertsTitle": "低电量提醒",
+          "features.alertsText": "启用电池模式后，App 可以在电量低于 50% 和 20% 时通过 iMessage 或 Bark 发送提醒。",
+          "features.menuTitle": "菜单栏工作流",
+          "features.menuText": "App 常驻 macOS 菜单栏，提供状态颜色、运行时长、开机自动启动、检查更新和自定义快捷键。",
+          "features.openTitle": "开源",
+          "features.openText": "Swift 和 SwiftUI 源码、构建脚本和发布说明都可以在 GitHub 上查看。",
+          "install.title": "一分钟安装。",
+          "install.intro": "从 GitHub Releases 下载最新版 DMG，把 App 拖进“应用程序”，然后在菜单栏里开启 Server Mode。",
+          "install.downloadTitle": "下载",
+          "install.downloadText": "从 GitHub Releases 获取最新版 TurnIntoServer DMG。",
+          "install.installTitle": "安装",
+          "install.installText": "打开 DMG，把 turnintoserver.app 拖进“应用程序”。",
+          "install.enableTitle": "开启",
+          "install.enableText": "启动 App，并在菜单栏里打开 Server Mode。",
+          "install.lidTitle": "合上盖子",
+          "install.lidText": "让 MacBook 接电源，放在桌面上，并保持正常散热。",
+          "download.title": "准备把 MacBook 变成一台小服务器？",
+          "download.text": "免费、开源，并为 macOS 菜单栏而生。",
+          "download.button": "下载最新版",
+          "footer.byline": "TurnIntoServer by qianyushi.",
+          "footer.github": "GitHub 仓库",
+          "footer.release": "最新版发布",
+          "footer.readme": "README"
+        }
+      };
+
+      function readSavedLanguage() {
+        try {
+          return window.localStorage.getItem(STORAGE_KEY);
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function saveLanguage(language) {
+        try {
+          window.localStorage.setItem(STORAGE_KEY, language);
+        } catch (error) {
+          return;
+        }
+      }
+
+      function browserLanguage() {
+        var languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "en"];
+        return languages.some(function (language) {
+          return /^zh\b/i.test(language);
+        }) ? "zh" : "en";
+      }
+
+      function preferredLanguage() {
+        var saved = readSavedLanguage();
+        return saved === "zh" || saved === "en" ? saved : browserLanguage();
+      }
+
+      function applyText(selector, attribute, dictionary) {
+        document.querySelectorAll(selector).forEach(function (element) {
+          var key = element.getAttribute(attribute);
+          if (dictionary[key]) {
+            if (attribute === "data-i18n") {
+              element.textContent = dictionary[key];
+            } else if (attribute === "data-i18n-content") {
+              element.setAttribute("content", dictionary[key]);
+            } else if (attribute === "data-i18n-alt") {
+              element.setAttribute("alt", dictionary[key]);
+            } else if (attribute === "data-i18n-aria-label") {
+              element.setAttribute("aria-label", dictionary[key]);
+            }
+          }
+        });
+      }
+
+      function updateSchema(dictionary) {
+        var schemaElement = document.getElementById("software-schema");
+        if (!schemaElement) {
+          return;
+        }
+
+        try {
+          var schema = JSON.parse(schemaElement.textContent);
+          schema.description = dictionary["schema.description"];
+          schema.inLanguage = document.documentElement.lang;
+          schemaElement.textContent = JSON.stringify(schema);
+        } catch (error) {
+          return;
+        }
+      }
+
+      function setLanguage(language, persist) {
+        var dictionary = translations[language] || translations.en;
+        document.documentElement.lang = language === "zh" ? "zh-Hans" : "en";
+        document.documentElement.dataset.lang = language;
+        document.title = dictionary["meta.title"];
+        applyText("[data-i18n]", "data-i18n", dictionary);
+        applyText("[data-i18n-content]", "data-i18n-content", dictionary);
+        applyText("[data-i18n-alt]", "data-i18n-alt", dictionary);
+        applyText("[data-i18n-aria-label]", "data-i18n-aria-label", dictionary);
+
+        var ogLocale = document.querySelector('meta[property="og:locale"]');
+        if (ogLocale) {
+          ogLocale.setAttribute("content", language === "zh" ? "zh_CN" : "en_US");
+        }
+
+        document.querySelectorAll("[data-readme-link]").forEach(function (link) {
+          link.setAttribute("href", language === "zh" ? "https://github.com/QianYushi/turnintoserver/blob/main/README.md" : "https://github.com/QianYushi/turnintoserver/blob/main/README.en.md");
+        });
+
+        var selector = document.getElementById("language-select");
+        if (selector) {
+          selector.value = language;
+        }
+
+        updateSchema(dictionary);
+
+        if (persist) {
+          saveLanguage(language);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        var initialLanguage = document.documentElement.dataset.lang || preferredLanguage();
+        setLanguage(initialLanguage, false);
+
+        var selector = document.getElementById("language-select");
+        if (selector) {
+          selector.addEventListener("change", function (event) {
+            setLanguage(event.target.value === "zh" ? "zh" : "en", true);
+          });
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
