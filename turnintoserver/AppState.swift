@@ -42,8 +42,16 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published private(set) var isCommandRunning = false
-    @Published private(set) var serverModeRuntimeDisplay: String?
+    @Published private(set) var isCommandRunning = false {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var serverModeRuntimeDisplay: String? {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
 
     @Published private(set) var allowBatteryServerMode: Bool {
         didSet {
@@ -52,12 +60,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published private(set) var launchAtLoginEnabled = false
-    @Published private(set) var isLaunchAtLoginChanging = false
+    @Published private(set) var launchAtLoginEnabled = false {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var isLaunchAtLoginChanging = false {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
 
     @Published private(set) var lowBatteryNotificationsEnabled: Bool {
         didSet {
             defaults.set(lowBatteryNotificationsEnabled, forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
+            notifyMenuShouldRefresh()
         }
     }
 
@@ -65,6 +82,7 @@ final class AppState: ObservableObject {
         didSet {
             defaults.set(hotKeysEnabled, forKey: AppDefaultsKey.hotKeysEnabled)
             NotificationCenter.default.post(name: .turnIntoServerHotKeysDidChange, object: nil)
+            notifyMenuShouldRefresh()
         }
     }
 
@@ -230,6 +248,11 @@ final class AppState: ObservableObject {
 
     private func notifyStatusIconShouldRefresh() {
         NotificationCenter.default.post(name: .turnIntoServerStatusIconShouldRefresh, object: self)
+        notifyMenuShouldRefresh()
+    }
+
+    private func notifyMenuShouldRefresh() {
+        NotificationCenter.default.post(name: .turnIntoServerMenuShouldRefresh, object: self)
     }
 
     func start() {

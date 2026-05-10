@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
     private var hotKeyManager: HotKeyManager?
     private var statusItemController: StatusItemController?
+    private var serverModeKeyEquivalentItem: NSMenuItem?
+    private var batteryModeKeyEquivalentItem: NSMenuItem?
+    private var hotKeysDidChangeObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -36,7 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         hotKeyManager?.start()
         statusItemController = StatusItemController(appState: state)
+        updateShortcutKeyEquivalentMenuItems()
+        observeShortcutMenuItemChanges()
         state.start()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let hotKeysDidChangeObserver {
+            NotificationCenter.default.removeObserver(hotKeysDidChangeObserver)
+            self.hotKeysDidChangeObserver = nil
+        }
     }
 
     private func configureApplicationMenu() {
@@ -44,6 +56,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+
+        let serverModeKeyEquivalentItem = NSMenuItem(
+            title: AppText.startServerMode,
+            action: #selector(performServerModeKeyEquivalent(_:)),
+            keyEquivalent: ""
+        )
+        serverModeKeyEquivalentItem.target = self
+        appMenu.addItem(serverModeKeyEquivalentItem)
+        self.serverModeKeyEquivalentItem = serverModeKeyEquivalentItem
+
+        let batteryModeKeyEquivalentItem = NSMenuItem(
+            title: AppText.allowBatteryServerMode,
+            action: #selector(performBatteryModeKeyEquivalent(_:)),
+            keyEquivalent: ""
+        )
+        batteryModeKeyEquivalentItem.target = self
+        appMenu.addItem(batteryModeKeyEquivalentItem)
+        self.batteryModeKeyEquivalentItem = batteryModeKeyEquivalentItem
+
+        appMenu.addItem(.separator())
         appMenu.addItem(
             NSMenuItem(
                 title: AppText.quit,
@@ -51,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 keyEquivalent: "q"
             )
         )
+
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
@@ -72,10 +105,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = mainMenu
     }
+
+    private func observeShortcutMenuItemChanges() {
+        guard hotKeysDidChangeObserver == nil else {
+            return
+        }
+
+        hotKeysDidChangeObserver = NotificationCenter.default.addObserver(
+            forName: .turnIntoServerHotKeysDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateShortcutKeyEquivalentMenuItems()
+            }
+        }
+    }
+
+    private func updateShortcutKeyEquivalentMenuItems() {
+        let hotKeysEnabled = appState?.hotKeysEnabled ?? true
+        configureKeyEquivalentMenuItem(
+            serverModeKeyEquivalentItem,
+            shortcut: hotKeysEnabled ? serverModeShortcut : nil
+        )
+        configureKeyEquivalentMenuItem(
+            batteryModeKeyEquivalentItem,
+            shortcut: hotKeysEnabled ? batteryModeShortcut : nil
+        )
+    }
+
+    private var serverModeShortcut: HotKeyShortcut? {
+        HotKeyShortcut.loadOptional(
+            defaultsKey: AppDefaultsKey.serverModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled,
+            default: .defaultServerMode
+        )
+    }
+
+    private var batteryModeShortcut: HotKeyShortcut? {
+        HotKeyShortcut.loadOptional(
+            defaultsKey: AppDefaultsKey.batteryModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled,
+            default: .defaultBatteryMode
+        )
+    }
+
+    private func configureKeyEquivalentMenuItem(_ item: NSMenuItem?, shortcut: HotKeyShortcut?) {
+        guard let item else {
+            return
+        }
+
+        guard let shortcut, let keyEquivalent = shortcut.keyEquivalent else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut.keyEquivalentModifierMask
+    }
+
+    @objc private func performServerModeKeyEquivalent(_ sender: Any?) {
+        guard let appState else {
+            return
+        }
+
+        statusItemController?.cancelMenuTrackingForKeyEquivalent()
+        Task { @MainActor in
+            await appState.toggleServerMode()
+        }
+    }
+
+    @objc private func performBatteryModeKeyEquivalent(_ sender: Any?) {
+        guard let appState else {
+            return
+        }
+
+        statusItemController?.cancelMenuTrackingForKeyEquivalent()
+        appState.toggleBatteryServerMode()
+    }
 }
 
 @MainActor
 private final class StatusItemController: NSObject, NSMenuDelegate {
+    private enum MenuShortcutAction {
+        case serverMode
+        case batteryMode
+    }
+
     private let appState: AppState
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
@@ -84,6 +201,16 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private var shortcutSettingsWindowController: ShortcutSettingsWindowController?
     private var cancellables = Set<AnyCancellable>()
     private var isMenuOpen = false
+    private var menuShortcutEventMonitor: Any?
+    private var lastHandledMenuShortcutEventTimestamp: TimeInterval?
+    private weak var serverModeRowView: MenuActionRowView?
+    private weak var statusSummaryRowView: MenuTextRowView?
+    private weak var runtimeRowView: MenuTextRowView?
+    private weak var batteryRowView: MenuToggleRowView?
+    private weak var lowBatteryRowView: MenuToggleRowView?
+    private weak var shortcutsRowView: MenuToggleRowView?
+    private weak var launchAtLoginRowView: MenuToggleRowView?
+    private weak var quitMenuItem: NSMenuItem?
 
     init(appState: AppState) {
         self.appState = appState
@@ -118,6 +245,27 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             selector: #selector(statusIconShouldRefresh(_:)),
             name: .turnIntoServerStatusIconShouldRefresh,
             object: appState
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(menuShouldRefresh(_:)),
+            name: .turnIntoServerMenuShouldRefresh,
+            object: appState
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(displayMetricsDidChange(_:)),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(displayMetricsDidChange(_:)),
+            name: NSWindow.didChangeBackingPropertiesNotification,
+            object: nil
         )
 
         Publishers.CombineLatest4(
@@ -164,21 +312,162 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         updateStatusButton()
     }
 
+    @objc private func menuShouldRefresh(_ notification: Notification) {
+        updateStatusButton()
+        refreshMenuAfterStateChange()
+    }
+
+    @objc private func displayMetricsDidChange(_ notification: Notification) {
+        if notification.name == NSWindow.didChangeBackingPropertiesNotification,
+           let changedWindow = notification.object as? NSWindow,
+           changedWindow !== statusItem.button?.window {
+            return
+        }
+
+        refreshStatusAndMenuForCurrentDisplay()
+
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshStatusAndMenuForCurrentDisplay()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.refreshStatusAndMenuForCurrentDisplay()
+        }
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         isMenuOpen = true
+        lastHandledMenuShortcutEventTimestamp = nil
+        installMenuShortcutEventMonitor()
+        NotificationCenter.default.post(name: .turnIntoServerMenuHotKeyCaptureDidStart, object: nil)
         appState.refreshLaunchAtLoginStatus()
         rebuildMenu()
     }
 
     func menuDidClose(_ menu: NSMenu) {
         isMenuOpen = false
+        removeMenuShortcutEventMonitor()
+        NotificationCenter.default.post(name: .turnIntoServerMenuHotKeyCaptureDidEnd, object: nil)
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard let event = NSApp.currentEvent,
+              event.type == .keyDown,
+              !event.isARepeat,
+              let action = Self.menuShortcutAction(for: event) else {
+            return
+        }
+
+        performMenuShortcutAction(action, eventTimestamp: event.timestamp)
+    }
+
+    func cancelMenuTrackingForKeyEquivalent() {
+        menu.cancelTracking()
+    }
+
+    @objc private func performServerModeMenuKeyEquivalent(_ sender: Any?) {
+        menu.cancelTracking()
+        Task { @MainActor in
+            await appState.toggleServerMode()
+            updateStatusButton()
+        }
+    }
+
+    @objc private func performBatteryModeMenuKeyEquivalent(_ sender: Any?) {
+        menu.cancelTracking()
+        appState.toggleBatteryServerMode()
+        updateStatusButton()
+    }
+
+    private func installMenuShortcutEventMonitor() {
+        removeMenuShortcutEventMonitor()
+
+        menuShortcutEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard !event.isARepeat,
+                  let action = Self.menuShortcutAction(for: event) else {
+                return event
+            }
+
+            let eventTimestamp = event.timestamp
+            Task { @MainActor [weak self] in
+                self?.performMenuShortcutAction(action, eventTimestamp: eventTimestamp)
+            }
+            return nil
+        }
+    }
+
+    private func removeMenuShortcutEventMonitor() {
+        if let menuShortcutEventMonitor {
+            NSEvent.removeMonitor(menuShortcutEventMonitor)
+            self.menuShortcutEventMonitor = nil
+        }
+    }
+
+    private nonisolated static func menuShortcutAction(for event: NSEvent) -> MenuShortcutAction? {
+        guard UserDefaults.standard.object(forKey: AppDefaultsKey.hotKeysEnabled) as? Bool ?? true else {
+            return nil
+        }
+
+        if let shortcut = HotKeyShortcut.loadOptional(
+            defaultsKey: AppDefaultsKey.serverModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled,
+            default: .defaultServerMode
+        ), shortcut.matches(event: event) {
+            return .serverMode
+        }
+
+        if let shortcut = HotKeyShortcut.loadOptional(
+            defaultsKey: AppDefaultsKey.batteryModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled,
+            default: .defaultBatteryMode
+        ), shortcut.matches(event: event) {
+            return .batteryMode
+        }
+
+        return nil
+    }
+
+    private func performMenuShortcutAction(
+        _ action: MenuShortcutAction,
+        eventTimestamp: TimeInterval? = nil
+    ) {
+        if let eventTimestamp {
+            if let lastHandledMenuShortcutEventTimestamp,
+               (lastHandledMenuShortcutEventTimestamp - eventTimestamp).magnitude < 0.001 {
+                return
+            }
+
+            lastHandledMenuShortcutEventTimestamp = eventTimestamp
+        }
+
+        menu.cancelTracking()
+
+        switch action {
+        case .serverMode:
+            Task { @MainActor in
+                await appState.toggleServerMode()
+                updateStatusButton()
+            }
+        case .batteryMode:
+            appState.toggleBatteryServerMode()
+            updateStatusButton()
+        }
     }
 
     private func rebuildMenu() {
         menu.removeAllItems()
+        serverModeRowView = nil
+        statusSummaryRowView = nil
+        runtimeRowView = nil
+        batteryRowView = nil
+        lowBatteryRowView = nil
+        shortcutsRowView = nil
+        launchAtLoginRowView = nil
+        quitMenuItem = nil
+
+        addHiddenShortcutMenuItems()
 
         let serverModeItem = NSMenuItem()
-        serverModeItem.view = MenuActionRowView(
+        let serverModeView = MenuActionRowView(
             title: appState.serverModeActionTitle,
             image: MenuBarStatusIconRenderer.menuServerModeImage(
                 for: appState.menuBarIconStyle,
@@ -191,22 +480,28 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             width: MenuRowMetric.width,
             height: MenuRowMetric.height
         )
+        serverModeItem.view = serverModeView
+        serverModeRowView = serverModeView
         menu.addItem(serverModeItem)
 
         let statusItem = NSMenuItem()
-        statusItem.view = MenuTextRowView(title: appState.statusSummaryDisplay)
+        let statusSummaryView = MenuTextRowView(title: appState.statusSummaryDisplay)
+        statusItem.view = statusSummaryView
+        statusSummaryRowView = statusSummaryView
         menu.addItem(statusItem)
 
         if let runtimeDisplay = appState.serverModeRuntimeDisplay {
             let runtimeItem = NSMenuItem()
-            runtimeItem.view = MenuTextRowView(title: runtimeDisplay)
+            let runtimeView = MenuTextRowView(title: runtimeDisplay)
+            runtimeItem.view = runtimeView
+            runtimeRowView = runtimeView
             menu.addItem(runtimeItem)
         }
 
         menu.addItem(.separator())
 
         let batteryItem = NSMenuItem()
-        batteryItem.view = MenuToggleRowView(
+        let batteryView = MenuToggleRowView(
             title: AppText.allowBatteryServerMode,
             isOn: appState.allowBatteryServerMode,
             isToggleEnabled: !appState.isCommandRunning,
@@ -214,10 +509,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             target: self,
             toggleAction: #selector(toggleBatteryServerMode(_:))
         )
+        batteryItem.view = batteryView
+        batteryRowView = batteryView
         menu.addItem(batteryItem)
 
         let lowBatteryItem = NSMenuItem()
-        lowBatteryItem.view = MenuToggleRowView(
+        let lowBatteryView = MenuToggleRowView(
             title: AppText.lowBatteryNotifications,
             isOn: appState.lowBatteryNotificationsEnabled,
             isToggleEnabled: appState.lowBatteryNotificationsEnabled
@@ -228,10 +525,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             toggleAction: #selector(toggleLowBatteryNotifications(_:)),
             settingsAction: #selector(showLowBatterySettings(_:))
         )
+        lowBatteryItem.view = lowBatteryView
+        lowBatteryRowView = lowBatteryView
         menu.addItem(lowBatteryItem)
 
         let shortcutsItem = NSMenuItem()
-        shortcutsItem.view = MenuToggleRowView(
+        let shortcutsView = MenuToggleRowView(
             title: AppText.enableShortcuts,
             isOn: appState.hotKeysEnabled,
             isToggleEnabled: true,
@@ -240,10 +539,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             toggleAction: #selector(toggleHotKeys(_:)),
             settingsAction: #selector(showShortcutSettings(_:))
         )
+        shortcutsItem.view = shortcutsView
+        shortcutsRowView = shortcutsView
         menu.addItem(shortcutsItem)
 
         let launchAtLoginItem = NSMenuItem()
-        launchAtLoginItem.view = MenuToggleRowView(
+        let launchAtLoginView = MenuToggleRowView(
             title: AppText.launchAtLogin,
             isOn: appState.launchAtLoginEnabled,
             isToggleEnabled: appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging,
@@ -251,6 +552,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             target: self,
             toggleAction: #selector(toggleLaunchAtLogin(_:))
         )
+        launchAtLoginItem.view = launchAtLoginView
+        launchAtLoginRowView = launchAtLoginView
         menu.addItem(launchAtLoginItem)
 
         menu.addItem(.separator())
@@ -262,7 +565,36 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         let quitItem = NSMenuItem(title: AppText.quit, action: #selector(quit), keyEquivalent: "")
         quitItem.target = self
         quitItem.isEnabled = !appState.isCommandRunning
+        quitMenuItem = quitItem
         menu.addItem(quitItem)
+    }
+
+    private func addHiddenShortcutMenuItems() {
+        let serverModeItem = hiddenShortcutMenuItem(
+            shortcut: appState.hotKeysEnabled ? serverModeShortcut : nil,
+            action: #selector(performServerModeMenuKeyEquivalent(_:))
+        )
+        menu.addItem(serverModeItem)
+
+        let batteryModeItem = hiddenShortcutMenuItem(
+            shortcut: appState.hotKeysEnabled ? batteryModeShortcut : nil,
+            action: #selector(performBatteryModeMenuKeyEquivalent(_:))
+        )
+        menu.addItem(batteryModeItem)
+    }
+
+    private func hiddenShortcutMenuItem(shortcut: HotKeyShortcut?, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: "", action: action, keyEquivalent: "")
+        item.target = self
+        item.isHidden = true
+
+        guard let shortcut, let keyEquivalent = shortcut.keyEquivalent else {
+            return item
+        }
+
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut.keyEquivalentModifierMask
+        return item
     }
 
     private func updateStatusButton() {
@@ -274,6 +606,10 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         button.image = MenuBarStatusIconRenderer.image(for: style)
         button.title = MenuBarStatusIconRenderer.title(for: style)
         button.toolTip = appState.menuBarStatusTitle
+        button.needsLayout = true
+        button.needsDisplay = true
+        button.displayIfNeeded()
+        button.window?.displayIfNeeded()
     }
 
     private func refreshMenuIfOpen() {
@@ -281,12 +617,104 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
-        rebuildMenu()
+        updateVisibleMenuRowsOrRebuild()
+    }
+
+    private func refreshStatusAndMenuForCurrentDisplay() {
+        updateStatusButton()
+        refreshMenuIfOpen()
+    }
+
+    private func updateVisibleMenuRowsOrRebuild() {
+        let runtimeShouldBeVisible = appState.serverModeRuntimeDisplay != nil
+        let runtimeIsVisible = runtimeRowView != nil
+
+        guard runtimeShouldBeVisible == runtimeIsVisible,
+              let serverModeRowView,
+              let statusSummaryRowView,
+              let batteryRowView,
+              let lowBatteryRowView,
+              let shortcutsRowView,
+              let launchAtLoginRowView else {
+            rebuildMenu()
+            return
+        }
+
+        serverModeRowView.update(
+            title: appState.serverModeActionTitle,
+            image: MenuBarStatusIconRenderer.menuServerModeImage(
+                for: appState.menuBarIconStyle,
+                fallbackSystemName: appState.serverModeActionSystemImage
+            ),
+            shortcutTitle: serverModeShortcutDisplay,
+            isEnabled: !appState.isCommandRunning
+        )
+        statusSummaryRowView.update(title: appState.statusSummaryDisplay)
+        runtimeRowView?.update(title: appState.serverModeRuntimeDisplay ?? "")
+        batteryRowView.update(
+            title: AppText.allowBatteryServerMode,
+            isOn: appState.allowBatteryServerMode,
+            isToggleEnabled: !appState.isCommandRunning,
+            shortcutTitle: batteryModeShortcutDisplay
+        )
+        lowBatteryRowView.update(
+            title: AppText.lowBatteryNotifications,
+            isOn: appState.lowBatteryNotificationsEnabled,
+            isToggleEnabled: appState.lowBatteryNotificationsEnabled
+                || AppState.canEnableLowBatteryNotifications(),
+            tooltip: AppText.lowBatteryNotificationsRequireTest
+        )
+        shortcutsRowView.update(
+            title: AppText.enableShortcuts,
+            isOn: appState.hotKeysEnabled,
+            isToggleEnabled: true
+        )
+        launchAtLoginRowView.update(
+            title: AppText.launchAtLogin,
+            isOn: appState.launchAtLoginEnabled,
+            isToggleEnabled: appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging,
+            tooltip: appState.launchAtLoginSupported ? nil : AppText.launchAtLoginUnsupported
+        )
+        quitMenuItem?.isEnabled = !appState.isCommandRunning
+
+        [
+            serverModeRowView,
+            statusSummaryRowView,
+            runtimeRowView,
+            batteryRowView,
+            lowBatteryRowView,
+            shortcutsRowView,
+            launchAtLoginRowView
+        ]
+        .compactMap { $0 }
+        .forEach { view in
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            view.window?.displayIfNeeded()
+        }
+        menu.update()
     }
 
     private func refreshMenuSoon() {
         DispatchQueue.main.async { [weak self] in
             self?.refreshMenuIfOpen()
+        }
+    }
+
+    private func refreshMenuAfterStateChange() {
+        if isHandlingMenuMouseEvent {
+            refreshMenuSoon()
+        } else {
+            refreshMenuIfOpen()
+        }
+    }
+
+    private var isHandlingMenuMouseEvent: Bool {
+        switch NSApp.currentEvent?.type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            return true
+        default:
+            return false
         }
     }
 
@@ -304,6 +732,22 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled,
             default: .defaultBatteryMode
         )?.menuDisplayString
+    }
+
+    private var serverModeShortcut: HotKeyShortcut? {
+        HotKeyShortcut.loadOptional(
+            defaultsKey: AppDefaultsKey.serverModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.serverModeHotKeyDisabled,
+            default: .defaultServerMode
+        )
+    }
+
+    private var batteryModeShortcut: HotKeyShortcut? {
+        HotKeyShortcut.loadOptional(
+            defaultsKey: AppDefaultsKey.batteryModeHotKey,
+            disabledDefaultsKey: AppDefaultsKey.batteryModeHotKeyDisabled,
+            default: .defaultBatteryMode
+        )
     }
 
     @objc private func toggleServerMode(_ sender: Any?) {
@@ -506,6 +950,7 @@ private final class MenuActionRowView: HighlightedMenuRowView {
     private let imageView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
+    private let actionButton = MenuRowButton()
 
     init(
         title: String,
@@ -538,7 +983,6 @@ private final class MenuActionRowView: HighlightedMenuRowView {
         shortcutLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let actionButton = MenuRowButton()
         actionButton.isBordered = false
         actionButton.isTransparent = true
         actionButton.focusRingType = .none
@@ -579,6 +1023,17 @@ private final class MenuActionRowView: HighlightedMenuRowView {
         updateHighlightAppearance()
     }
 
+    func update(title: String, image: NSImage?, shortcutTitle: String?, isEnabled: Bool) {
+        titleLabel.stringValue = title
+        imageView.image = image
+        shortcutLabel.stringValue = shortcutTitle ?? ""
+        shortcutLabel.isHidden = shortcutTitle == nil
+        actionButton.isEnabled = isEnabled
+        isRowEnabled = isEnabled
+        needsLayout = true
+        needsDisplay = true
+    }
+
     override fileprivate func applyHighlightAppearance(isHighlighted: Bool) {
         let color = contentTextColor(isHighlighted: isHighlighted)
         titleLabel.textColor = color
@@ -589,10 +1044,12 @@ private final class MenuActionRowView: HighlightedMenuRowView {
 }
 
 private final class MenuTextRowView: NSView {
+    private let titleLabel = NSTextField(labelWithString: "")
+
     init(title: String) {
         super.init(frame: NSRect(x: 0, y: 0, width: MenuRowMetric.width, height: MenuRowMetric.textHeight))
 
-        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.stringValue = title
         titleLabel.font = NSFont.menuFont(ofSize: 0)
         titleLabel.textColor = .disabledControlTextColor
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -610,6 +1067,12 @@ private final class MenuTextRowView: NSView {
         ])
     }
 
+    func update(title: String) {
+        titleLabel.stringValue = title
+        needsLayout = true
+        needsDisplay = true
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         return nil
@@ -619,6 +1082,8 @@ private final class MenuTextRowView: NSView {
 private final class MenuToggleRowView: HighlightedMenuRowView {
     private let checkmarkLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
+    private let shortcutLabel = NSTextField(labelWithString: "")
+    private let toggleOverlayButton = MenuRowButton()
 
     init(
         title: String,
@@ -643,7 +1108,7 @@ private final class MenuToggleRowView: HighlightedMenuRowView {
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let shortcutLabel = NSTextField(labelWithString: shortcutTitle ?? "")
+        shortcutLabel.stringValue = shortcutTitle ?? ""
         shortcutLabel.font = NSFont.menuFont(ofSize: 0)
         shortcutLabel.textColor = .tertiaryLabelColor
         shortcutLabel.lineBreakMode = .byTruncatingTail
@@ -653,7 +1118,6 @@ private final class MenuToggleRowView: HighlightedMenuRowView {
         shortcutLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let toggleOverlayButton = MenuRowButton()
         toggleOverlayButton.isBordered = false
         toggleOverlayButton.isTransparent = true
         toggleOverlayButton.focusRingType = .none
@@ -729,6 +1193,24 @@ private final class MenuToggleRowView: HighlightedMenuRowView {
         updateHighlightAppearance()
     }
 
+    func update(
+        title: String,
+        isOn: Bool,
+        isToggleEnabled: Bool,
+        tooltip: String? = nil,
+        shortcutTitle: String? = nil
+    ) {
+        titleLabel.stringValue = title
+        checkmarkLabel.stringValue = isOn ? "✓" : ""
+        shortcutLabel.stringValue = shortcutTitle ?? ""
+        shortcutLabel.isHidden = shortcutTitle == nil
+        toggleOverlayButton.isEnabled = isToggleEnabled
+        toggleOverlayButton.toolTip = isToggleEnabled ? nil : tooltip
+        isRowEnabled = isToggleEnabled
+        needsLayout = true
+        needsDisplay = true
+    }
+
     override fileprivate func applyHighlightAppearance(isHighlighted: Bool) {
         let color = contentTextColor(isHighlighted: isHighlighted)
         checkmarkLabel.textColor = color
@@ -758,6 +1240,7 @@ private enum MenuBarStatusIconRenderer {
         case .idle:
             let image = (NSImage(named: "MenuBarIcon") ?? systemImage(named: "server.rack"))?.copy() as? NSImage
             image?.size = NSSize(width: 18, height: 18)
+            image?.cacheMode = .never
             image?.isTemplate = true
             return image
         case .waitingForPowerAdapter:
@@ -792,55 +1275,66 @@ private enum MenuBarStatusIconRenderer {
 
     private static func statusDot(color: NSColor, text: String) -> NSImage {
         let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size)
+        let image = drawingImage(size: size) { bounds in
+            let circleRect = NSRect(
+                x: bounds.midX - 7.5,
+                y: bounds.midY - 7.5,
+                width: 15,
+                height: 15
+            )
+            let circle = NSBezierPath(ovalIn: circleRect)
+            color.setFill()
+            circle.fill()
 
-        image.lockFocus()
+            NSColor.white.withAlphaComponent(0.95).setStroke()
+            circle.lineWidth = 1
+            circle.stroke()
 
-        let circleRect = NSRect(x: 1.5, y: 1.5, width: 15, height: 15)
-        let circle = NSBezierPath(ovalIn: circleRect)
-        color.setFill()
-        circle.fill()
-
-        NSColor.white.withAlphaComponent(0.95).setStroke()
-        circle.lineWidth = 1
-        circle.stroke()
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.white
-        ]
-        let attributedText = NSAttributedString(string: text, attributes: attributes)
-        let textSize = attributedText.size()
-        let textRect = NSRect(
-            x: (size.width - textSize.width) / 2,
-            y: (size.height - textSize.height) / 2 - 0.5,
-            width: textSize.width,
-            height: textSize.height
-        )
-        attributedText.draw(in: textRect)
-
-        image.unlockFocus()
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+                .foregroundColor: NSColor.white
+            ]
+            let attributedText = NSAttributedString(string: text, attributes: attributes)
+            let textSize = attributedText.size()
+            let textRect = NSRect(
+                x: bounds.midX - textSize.width / 2,
+                y: bounds.midY - textSize.height / 2 - 0.5,
+                width: textSize.width,
+                height: textSize.height
+            )
+            attributedText.draw(in: textRect)
+        }
         image.isTemplate = false
         return image
     }
 
     private static func menuStatusLight(color: NSColor) -> NSImage {
         let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size)
+        let image = drawingImage(size: size) { bounds in
+            let circleRect = NSRect(
+                x: bounds.midX - 4,
+                y: bounds.midY - 4,
+                width: 8,
+                height: 8
+            )
+            let circle = NSBezierPath(ovalIn: circleRect)
+            color.setFill()
+            circle.fill()
 
-        image.lockFocus()
-
-        let circleRect = NSRect(x: 5, y: 5, width: 8, height: 8)
-        let circle = NSBezierPath(ovalIn: circleRect)
-        color.setFill()
-        circle.fill()
-
-        NSColor.white.withAlphaComponent(0.9).setStroke()
-        circle.lineWidth = 1
-        circle.stroke()
-
-        image.unlockFocus()
+            NSColor.white.withAlphaComponent(0.9).setStroke()
+            circle.lineWidth = 1
+            circle.stroke()
+        }
         image.isTemplate = false
+        return image
+    }
+
+    private static func drawingImage(size: NSSize, drawing: @escaping (NSRect) -> Void) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { bounds in
+            drawing(bounds)
+            return true
+        }
+        image.cacheMode = .never
         return image
     }
 }

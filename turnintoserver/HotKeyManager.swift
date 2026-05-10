@@ -7,6 +7,9 @@ extension Notification.Name {
     static let turnIntoServerHotKeyRecordingDidStart = Notification.Name("turnIntoServerHotKeyRecordingDidStart")
     static let turnIntoServerHotKeyRecordingDidEnd = Notification.Name("turnIntoServerHotKeyRecordingDidEnd")
     static let turnIntoServerStatusIconShouldRefresh = Notification.Name("turnIntoServerStatusIconShouldRefresh")
+    static let turnIntoServerMenuShouldRefresh = Notification.Name("turnIntoServerMenuShouldRefresh")
+    static let turnIntoServerMenuHotKeyCaptureDidStart = Notification.Name("turnIntoServerMenuHotKeyCaptureDidStart")
+    static let turnIntoServerMenuHotKeyCaptureDidEnd = Notification.Name("turnIntoServerMenuHotKeyCaptureDidEnd")
 }
 
 struct HotKeyShortcut: Codable, Equatable {
@@ -51,6 +54,58 @@ struct HotKeyShortcut: Codable, Equatable {
         }
 
         return "\(modifiers) \(keyDisplay)"
+    }
+
+    var keyEquivalent: String? {
+        switch Int(keyCode) {
+        case kVK_Space:
+            return " "
+        case kVK_Return:
+            return "\r"
+        case kVK_Tab:
+            return "\t"
+        case kVK_Delete:
+            return "\u{7F}"
+        case kVK_ForwardDelete:
+            return String(UnicodeScalar(NSDeleteFunctionKey)!)
+        case kVK_LeftArrow:
+            return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        case kVK_RightArrow:
+            return String(UnicodeScalar(NSRightArrowFunctionKey)!)
+        case kVK_UpArrow:
+            return String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        case kVK_DownArrow:
+            return String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        default:
+            guard keyDisplay.count == 1 else {
+                return nil
+            }
+
+            return keyDisplay.lowercased()
+        }
+    }
+
+    var keyEquivalentModifierMask: NSEvent.ModifierFlags {
+        var result: NSEvent.ModifierFlags = []
+        if modifierFlags & UInt32(controlKey) != 0 {
+            result.insert(.control)
+        }
+        if modifierFlags & UInt32(optionKey) != 0 {
+            result.insert(.option)
+        }
+        if modifierFlags & UInt32(shiftKey) != 0 {
+            result.insert(.shift)
+        }
+        if modifierFlags & UInt32(cmdKey) != 0 {
+            result.insert(.command)
+        }
+
+        return result
+    }
+
+    func matches(event: NSEvent) -> Bool {
+        keyCode == UInt32(event.keyCode)
+            && modifierFlags == Self.carbonModifierFlags(from: event.modifierFlags)
     }
 
     init(keyCode: UInt32, modifierFlags: UInt32, keyDisplay: String) {
@@ -197,7 +252,10 @@ final class HotKeyManager {
     private var hotKeysDidChangeObserver: NSObjectProtocol?
     private var recordingDidStartObserver: NSObjectProtocol?
     private var recordingDidEndObserver: NSObjectProtocol?
+    private var menuCaptureDidStartObserver: NSObjectProtocol?
+    private var menuCaptureDidEndObserver: NSObjectProtocol?
     private var isPausedForRecording = false
+    private var isPausedForOpenMenu = false
 
     init(
         onToggleServerMode: @escaping @MainActor () async -> Void,
@@ -224,7 +282,7 @@ final class HotKeyManager {
         )
         let userData = Unmanaged.passUnretained(self).toOpaque()
         let status = InstallEventHandler(
-            GetApplicationEventTarget(),
+            GetEventDispatcherTarget(),
             Self.handleHotKeyEvent,
             1,
             &eventType,
@@ -253,7 +311,9 @@ final class HotKeyManager {
     private func startObservers() {
         guard hotKeysDidChangeObserver == nil,
               recordingDidStartObserver == nil,
-              recordingDidEndObserver == nil else {
+              recordingDidEndObserver == nil,
+              menuCaptureDidStartObserver == nil,
+              menuCaptureDidEndObserver == nil else {
             return
         }
 
@@ -282,6 +342,24 @@ final class HotKeyManager {
             self?.isPausedForRecording = false
             self?.reloadHotKeys()
         }
+
+        menuCaptureDidStartObserver = NotificationCenter.default.addObserver(
+            forName: .turnIntoServerMenuHotKeyCaptureDidStart,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.isPausedForOpenMenu = true
+            self?.unregisterHotKeys()
+        }
+
+        menuCaptureDidEndObserver = NotificationCenter.default.addObserver(
+            forName: .turnIntoServerMenuHotKeyCaptureDidEnd,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.isPausedForOpenMenu = false
+            self?.reloadHotKeys()
+        }
     }
 
     private func stopObservers() {
@@ -298,10 +376,18 @@ final class HotKeyManager {
             notificationCenter.removeObserver(recordingDidEndObserver)
             self.recordingDidEndObserver = nil
         }
+        if let menuCaptureDidStartObserver {
+            notificationCenter.removeObserver(menuCaptureDidStartObserver)
+            self.menuCaptureDidStartObserver = nil
+        }
+        if let menuCaptureDidEndObserver {
+            notificationCenter.removeObserver(menuCaptureDidEndObserver)
+            self.menuCaptureDidEndObserver = nil
+        }
     }
 
     private func reloadHotKeys() {
-        guard !isPausedForRecording else {
+        guard !isPausedForRecording, !isPausedForOpenMenu else {
             return
         }
 
@@ -353,7 +439,7 @@ final class HotKeyManager {
             shortcut.keyCode,
             shortcut.modifierFlags,
             hotKeyID,
-            GetApplicationEventTarget(),
+            GetEventDispatcherTarget(),
             0,
             &storage
         )
