@@ -1,9 +1,9 @@
 # turnintoserver
 
-[English](README.en.md)
+[English](README.en.md) · [产品页面](https://qianyushi.github.io/turnintoserver/)
 
 <p>
-  <img src="icon.png" alt="turnintoserver app icon" width="96" height="96">
+  <img src="https://qianyushi.github.io/turnintoserver/icon.png" alt="turnintoserver app icon" width="96" height="96">
 </p>
 
 合上盖子。  
