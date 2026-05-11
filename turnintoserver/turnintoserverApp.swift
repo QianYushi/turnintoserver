@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var serverModeKeyEquivalentItem: NSMenuItem?
     private var batteryModeKeyEquivalentItem: NSMenuItem?
     private var hotKeysDidChangeObserver: NSObjectProtocol?
+    private var isPreparingToTerminate = false
+    private var didFinishTerminatePreparation = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -49,6 +51,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.removeObserver(hotKeysDidChangeObserver)
             self.hotKeysDidChangeObserver = nil
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let appState else {
+            return .terminateNow
+        }
+
+        if didFinishTerminatePreparation {
+            return .terminateNow
+        }
+
+        guard !isPreparingToTerminate else {
+            return .terminateLater
+        }
+
+        isPreparingToTerminate = true
+        Task { @MainActor [weak self] in
+            guard let self else {
+                sender.reply(toApplicationShouldTerminate: false)
+                return
+            }
+
+            let shouldTerminate = await appState.prepareForQuit()
+            self.isPreparingToTerminate = false
+            self.didFinishTerminatePreparation = shouldTerminate
+            sender.reply(toApplicationShouldTerminate: shouldTerminate)
+        }
+
+        return .terminateLater
     }
 
     private func configureApplicationMenu() {
@@ -818,11 +849,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func quit() {
-        Task { @MainActor in
-            if await appState.prepareForQuit() {
-                NSApplication.shared.terminate(nil)
-            }
-        }
+        NSApplication.shared.terminate(nil)
     }
 }
 

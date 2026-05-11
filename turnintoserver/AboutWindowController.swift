@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class AboutWindowController: NSWindowController {
     init(appState: AppState) {
-        let hostingController = NSHostingController(rootView: AboutView())
+        let hostingController = NSHostingController(rootView: AboutView(appState: appState))
         let window = NSWindow(contentViewController: hostingController)
         window.title = AppText.aboutApplication
         window.styleMask = [.titled, .closable]
@@ -115,8 +115,8 @@ private struct AboutView: View {
     @ObservedObject private var updateModel: PreferencesUpdateViewModel
 
     @MainActor
-    init() {
-        updateModel = PreferencesUpdateViewModel()
+    init(appState: AppState) {
+        updateModel = PreferencesUpdateViewModel(appState: appState)
     }
 
     var body: some View {
@@ -755,6 +755,11 @@ private final class PreferencesUpdateViewModel: ObservableObject {
 
     private var preparedDMGURL: URL?
     private var progressObservation: NSKeyValueObservation?
+    private let appState: AppState
+
+    init(appState: AppState) {
+        self.appState = appState
+    }
 
     static func openGitHub() {
         NSWorkspace.shared.open(githubURL)
@@ -850,6 +855,11 @@ private final class PreferencesUpdateViewModel: ObservableObject {
         }
 
         statusText = AppText.restartingToInstallUpdate
+
+        guard await appState.prepareForQuit() else {
+            statusText = AppText.updateInstallCancelled
+            return
+        }
 
         do {
             try Self.launchInstaller(dmgURL: preparedDMGURL, targetAppURL: Bundle.main.bundleURL)

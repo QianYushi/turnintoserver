@@ -100,6 +100,7 @@ final class AppState: ObservableObject {
     private var runtimeTimer: Timer?
     private var batteryNotificationTimer: Timer?
     private var sentLowBatteryThresholds = Set<Int>()
+    private var temporarilyAllowBatteryServerMode = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -137,7 +138,7 @@ final class AppState: ObservableObject {
 
     var menuBarStatusTitle: String {
         if serverModeActive || (serverModeRequested && !isWaitingForPowerAdapter) {
-            return allowBatteryServerMode
+            return isBatteryServerModeAllowedForCurrentSource
                 ? AppText.serverModeOnBatteryAllowed
                 : AppText.serverModeOnPowerOnly
         }
@@ -151,7 +152,7 @@ final class AppState: ObservableObject {
 
     var menuBarIconStyle: MenuBarIconStyle {
         if serverModeActive || (serverModeRequested && !isWaitingForPowerAdapter) {
-            return allowBatteryServerMode ? .serverModeBatteryAllowed : .serverModePowerOnly
+            return isBatteryServerModeAllowedForCurrentSource ? .serverModeBatteryAllowed : .serverModePowerOnly
         }
 
         if isWaitingForPowerAdapter {
@@ -182,7 +183,7 @@ final class AppState: ObservableObject {
             return AppText.notStarted
         }
 
-        if powerSource == .batteryPower, !allowBatteryServerMode {
+        if powerSource == .batteryPower, !canRunServerMode(on: powerSource) {
             return AppText.connectPowerToKeepRunningWithLidClosed
         }
 
@@ -243,7 +244,11 @@ final class AppState: ObservableObject {
     }
 
     private var isWaitingForPowerAdapter: Bool {
-        serverModeRequested && !serverModeActive && powerSource == .batteryPower && !allowBatteryServerMode
+        serverModeRequested && !serverModeActive && powerSource == .batteryPower && !canRunServerMode(on: powerSource)
+    }
+
+    private var isBatteryServerModeAllowedForCurrentSource: Bool {
+        allowBatteryServerMode || (powerSource == .batteryPower && temporarilyAllowBatteryServerMode)
     }
 
     private func notifyStatusIconShouldRefresh() {
@@ -253,6 +258,29 @@ final class AppState: ObservableObject {
 
     private func notifyMenuShouldRefresh() {
         NotificationCenter.default.post(name: .turnIntoServerMenuShouldRefresh, object: self)
+    }
+
+    private func setTemporaryBatteryServerModeAllowed(_ isAllowed: Bool) {
+        guard temporarilyAllowBatteryServerMode != isAllowed else {
+            return
+        }
+
+        temporarilyAllowBatteryServerMode = isAllowed
+        notifyStatusIconShouldRefresh()
+        Task {
+            await evaluateLowBatteryNotification()
+        }
+    }
+
+    private func resetTemporaryBatteryServerModeAllowanceIfNeeded(for source: PowerSource? = nil) {
+        guard temporarilyAllowBatteryServerMode else {
+            return
+        }
+
+        let currentSource = source ?? powerSource
+        if currentSource == .acPower || allowBatteryServerMode || !serverModeActive {
+            setTemporaryBatteryServerModeAllowed(false)
+        }
     }
 
     func start() {
@@ -282,6 +310,7 @@ final class AppState: ObservableObject {
             return
         }
 
+        setTemporaryBatteryServerModeAllowed(false)
         allowBatteryServerMode = isEnabled
         lastCommandStatus = isEnabled ? AppText.batteryPowerAllowed : AppText.batteryPowerRestricted
 
@@ -372,13 +401,37 @@ final class AppState: ObservableObject {
     }
 
     private func confirmStopServerModeForClosedLidWithoutExternalDisplay() -> Bool {
+        confirmClosedLidStop(
+            title: AppText.stopServerModeConfirmationTitle,
+            message: AppText.stopServerModeConfirmationMessage,
+            continueTitle: AppText.stopServerModeConfirmationContinue
+        )
+    }
+
+    private func confirmQuitForClosedLidWithoutExternalDisplay() -> Bool {
+        confirmClosedLidStop(
+            title: AppText.quitConfirmationTitle,
+            message: AppText.quitConfirmationMessage,
+            continueTitle: AppText.quitConfirmationContinue
+        )
+    }
+
+    private func confirmBatteryRestrictionStopForClosedLidWithoutExternalDisplay() -> Bool {
+        confirmClosedLidStop(
+            title: AppText.batteryRestrictionConfirmationTitle,
+            message: AppText.batteryRestrictionConfirmationMessage,
+            continueTitle: AppText.batteryRestrictionConfirmationContinue
+        )
+    }
+
+    private func confirmClosedLidStop(title: String, message: String, continueTitle: String) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = AppText.stopServerModeConfirmationTitle
-        alert.informativeText = AppText.stopServerModeConfirmationMessage
-        alert.addButton(withTitle: AppText.stopServerModeConfirmationContinue)
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: continueTitle)
         alert.addButton(withTitle: AppText.cancel)
 
         return alert.runModal() == .alertFirstButtonReturn
@@ -467,6 +520,12 @@ final class AppState: ObservableObject {
     }
 
     func prepareForQuit() async -> Bool {
+        if await needsClosedLidStopConfirmation(),
+           !confirmQuitForClosedLidWithoutExternalDisplay() {
+            lastCommandStatus = AppText.quitCancelled
+            return false
+        }
+
         serverModeRequested = false
 
         if serverModeActive {
@@ -489,6 +548,14 @@ final class AppState: ObservableObject {
 
         guard canRunServerMode(on: currentSource) else {
             if serverModeActive {
+                if await needsClosedLidStopConfirmation(),
+                   !confirmBatteryRestrictionStopForClosedLidWithoutExternalDisplay() {
+                    setTemporaryBatteryServerModeAllowed(true)
+                    lastCommandStatus = AppText.keptRunningOnBatteryForNow
+                    await dimClosedLidBuiltInDisplayIfNeeded()
+                    return
+                }
+
                 await stopServerMode(clearRequest: false, successMessage: AppText.pausedWaitingForPowerAdapter)
             } else {
                 lastCommandStatus = AppText.waitingForPowerAdapter
@@ -508,6 +575,7 @@ final class AppState: ObservableObject {
         if serverModeActive {
             await stopServerMode(clearRequest: true)
         } else {
+            setTemporaryBatteryServerModeAllowed(false)
             serverModeRequested = false
             lastCommandStatus = AppText.serverModeCancelled
         }
@@ -575,6 +643,7 @@ final class AppState: ObservableObject {
     private func currentPowerSource() async -> PowerSource {
         let detectedSource = await monitor.detectPowerSource()
         powerSource = detectedSource
+        resetTemporaryBatteryServerModeAllowanceIfNeeded(for: detectedSource)
         return detectedSource
     }
 
@@ -587,6 +656,7 @@ final class AppState: ObservableObject {
     private func handlePowerSourceUpdate(_ newSource: PowerSource) {
         let oldSource = powerSource
         powerSource = newSource
+        resetTemporaryBatteryServerModeAllowanceIfNeeded(for: newSource)
 
         guard (serverModeRequested || serverModeActive), !isCommandRunning else {
             return
@@ -683,7 +753,7 @@ final class AppState: ObservableObject {
         guard lowBatteryNotificationsEnabled,
               Self.canEnableLowBatteryNotifications(defaults: defaults),
               serverModeActive,
-              allowBatteryServerMode,
+              canRunServerMode(on: powerSource),
               powerSource == .batteryPower else {
             sentLowBatteryThresholds.removeAll()
             return
@@ -852,6 +922,7 @@ final class AppState: ObservableObject {
         switch result {
         case .success(let message):
             serverModeActive = false
+            setTemporaryBatteryServerModeAllowed(false)
             didHandleBuiltInDisplayForClosedLid = false
             restoreBuiltInDisplayBrightnessIfNeeded()
             if !clearRequest {
@@ -872,7 +943,7 @@ final class AppState: ObservableObject {
     }
 
     private func canRunServerMode(on source: PowerSource) -> Bool {
-        source != .batteryPower || allowBatteryServerMode
+        source != .batteryPower || allowBatteryServerMode || temporarilyAllowBatteryServerMode
     }
 }
 
