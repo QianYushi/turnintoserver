@@ -11,6 +11,8 @@ enum AppDefaultsKey {
     static let batteryModeHotKey = "batteryModeHotKey"
     static let serverModeHotKeyDisabled = "serverModeHotKeyDisabled"
     static let batteryModeHotKeyDisabled = "batteryModeHotKeyDisabled"
+    static let timedServerModeDurationOptions = "timedServerModeDurationOptions"
+    static let timedServerModePreventDisplaySleep = "timedServerModePreventDisplaySleep"
 }
 
 enum AppText {
@@ -57,6 +59,75 @@ enum AppText {
         return "Running for " + parts.joined(separator: " ")
     }
 
+    static func timedServerModeRemaining(totalSeconds: Int) -> String {
+        let clampedSeconds = max(0, totalSeconds)
+        let days = clampedSeconds / (24 * 60 * 60)
+        let hours = (clampedSeconds % (24 * 60 * 60)) / (60 * 60)
+        let minutes = (clampedSeconds % (60 * 60)) / 60
+        let seconds = clampedSeconds % 60
+
+        if isChinesePreferred {
+            var parts: [String] = []
+            if days > 0 {
+                parts.append("\(days)天")
+            }
+            if hours > 0 {
+                parts.append("\(hours)小时")
+            }
+            if minutes > 0 {
+                parts.append("\(minutes)分钟")
+            }
+            parts.append("\(seconds)秒")
+            return "剩余 " + parts.joined()
+        }
+
+        var parts: [String] = []
+        if days > 0 {
+            parts.append("\(days)d")
+        }
+        if hours > 0 {
+            parts.append("\(hours)h")
+        }
+        if minutes > 0 {
+            parts.append("\(minutes)m")
+        }
+        parts.append("\(seconds)s")
+        return parts.joined(separator: " ") + " remaining"
+    }
+
+    static func timedServerModeDuration(minutes: Int) -> String {
+        let clampedMinutes = max(1, minutes)
+        let days = clampedMinutes / (24 * 60)
+        let hours = (clampedMinutes % (24 * 60)) / 60
+        let minutes = clampedMinutes % 60
+
+        if isChinesePreferred {
+            var parts: [String] = []
+            if days > 0 {
+                parts.append("\(days)天")
+            }
+            if hours > 0 {
+                parts.append("\(hours)小时")
+            }
+            if minutes > 0 {
+                parts.append("\(minutes)分钟")
+            }
+            return parts.joined()
+        }
+
+        var parts: [String] = []
+        if days > 0 {
+            parts.append(days == 1 ? "1 day" : "\(days) days")
+        }
+        if hours > 0 {
+            parts.append(hours == 1 ? "1 hour" : "\(hours) hours")
+        }
+        if minutes > 0 {
+            parts.append(minutes == 1 ? "1 minute" : "\(minutes) minutes")
+        }
+        return parts.joined(separator: " ")
+    }
+
     static var startServerMode: String {
         localized(chinese: "启动 Server 模式", english: "Start Server Mode")
     }
@@ -67,6 +138,61 @@ enum AppText {
 
     static var allowBatteryServerMode: String {
         localized(chinese: "电池也允许 Server 模式", english: "Allow Server Mode on Battery")
+    }
+
+    static var timedServerMode: String {
+        localized(chinese: "在一段时间内启动", english: "Start for a Duration")
+    }
+
+    static var preventTimedServerModeDisplaySleep: String {
+        localized(chinese: "阻止屏幕睡眠", english: "Prevent Display Sleep")
+    }
+
+    static var timedServerModeSettings: String {
+        localized(chinese: "设置…", english: "Settings...")
+    }
+
+    static var timedServerModeSettingsTitle: String {
+        localized(chinese: "启动时长", english: "Activation Durations")
+    }
+
+    static var resetTimedServerModeDurations: String {
+        localized(chinese: "重置…", english: "Reset...")
+    }
+
+    static var addTimedServerModeDurationTitle: String {
+        localized(chinese: "添加时长", english: "Add Duration")
+    }
+
+    static var addTimedServerModeDurationMessage: String {
+        localized(chinese: "请输入小时和分钟。", english: "Enter hours and minutes.")
+    }
+
+    static var addTimedServerModeDurationConfirm: String {
+        localized(chinese: "添加", english: "Add")
+    }
+
+    static var timedServerModeHoursUnit: String {
+        localized(chinese: "小时", english: "h")
+    }
+
+    static var timedServerModeMinutesUnit: String {
+        localized(chinese: "分钟", english: "min")
+    }
+
+    static var invalidTimedServerModeDuration: String {
+        localized(chinese: "请输入 1 到 10080 之间的整数分钟。", english: "Enter a whole number from 1 to 10080 minutes.")
+    }
+
+    static var invalidTimedServerModeDurationComponents: String {
+        localized(
+            chinese: "请输入 0 到 168 小时、0 到 59 分钟，且总时长为 1 到 10080 分钟。",
+            english: "Enter 0 to 168 hours and 0 to 59 minutes, with a total duration from 1 to 10080 minutes."
+        )
+    }
+
+    static var timedServerModeEnded: String {
+        localized(chinese: "定时已结束", english: "Timed Server Mode ended")
     }
 
     static var lowBatteryNotifications: String {

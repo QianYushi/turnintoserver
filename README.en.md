@@ -23,6 +23,7 @@ I built it because I wanted to use a MacBook as a small temporary server. Most k
 - Does not intentionally turn off external monitors.
 - Runs on power, pauses automatically on battery.
 - Resumes automatically when power is connected again.
+- Can run Server Mode for a chosen duration, then automatically restore normal macOS power behavior.
 - Can optionally keep running on battery.
 - Can send low battery alerts through iMessage or Bark while running on battery.
 - Supports custom global keyboard shortcuts.
@@ -58,6 +59,7 @@ The app lives only in the menu bar.
 The main controls are:
 
 - `Start Server Mode`: keeps the Mac running while connected to power.
+- `Start for a Duration`: choose 30 minutes, 1 hour, 2 hours, and more; when the timer ends, Server Mode turns off automatically. Clicking the selected duration again clears the timer, while clicking another duration restarts it.
 - `Allow Server Mode on Battery`: keeps running after power is unplugged. Off by default.
 - `Low Battery Alerts`: sends alerts below 50% and 20% through the configured channels while running on battery; use the right-side Set Up button for iMessage / Bark.
 - `Enable Shortcuts`: turns global shortcuts on or off; use the right-side Set Up button to record the two shortcuts.
@@ -66,6 +68,8 @@ The main controls are:
 - `Quit`: restores the default sleep behavior before quitting.
 
 For normal use, turn on Server Mode and close the lid.
+
+If you only need it for a while, choose Start for a Duration from the menu. When the timer ends, the app turns off Server Mode and restores the normal macOS sleep and power-management behavior. A regular start with no duration selected still runs indefinitely.
 
 If battery mode is off, unplugging power pauses Server Mode. Plugging power back in resumes it automatically.
 

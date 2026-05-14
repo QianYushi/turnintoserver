@@ -111,6 +111,34 @@ final class ShortcutSettingsWindowController: NSWindowController {
     }
 }
 
+@MainActor
+final class TimedServerModeSettingsWindowController: NSWindowController {
+    init(appState: AppState) {
+        let hostingController = NSHostingController(rootView: TimedServerModeSettingsView(appState: appState))
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = AppText.timedServerModeSettingsTitle
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 360, height: 360)
+        window.contentMaxSize = NSSize(width: 360, height: 360)
+        window.setContentSize(NSSize(width: 360, height: 360))
+        window.center()
+
+        super.init(window: window)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
 private struct AboutView: View {
     @ObservedObject private var updateModel: PreferencesUpdateViewModel
 
@@ -198,6 +226,107 @@ private struct AboutView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
+    }
+}
+
+struct TimedServerModeSettingsView: View {
+    @ObservedObject private var appState: AppState
+    @ObservedObject private var settingsModel: TimedServerModeSettingsViewModel
+
+    @MainActor
+    init(appState: AppState) {
+        self.appState = appState
+        settingsModel = TimedServerModeSettingsViewModel(appState: appState)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach(Array(appState.timedServerModeDurationOptions.enumerated()), id: \.element) { index, duration in
+                        TimedServerModeDurationRow(
+                            title: AppText.timedServerModeDuration(minutes: duration),
+                            isSelected: settingsModel.selectedDurationMinutes == duration,
+                            usesAlternateBackground: index.isMultiple(of: 2)
+                        ) {
+                            settingsModel.selectDuration(duration)
+                        }
+                    }
+                }
+                .padding(EdgeInsets(top: 16, leading: 10, bottom: 16, trailing: 10))
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Button(AppText.resetTimedServerModeDurations) {
+                        settingsModel.resetDurations()
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 0) {
+                        Button("−") {
+                            settingsModel.removeSelectedDuration()
+                        }
+                        .disabled(!settingsModel.canRemoveSelectedDuration)
+                        .frame(width: 36)
+
+                        Divider()
+                            .frame(height: 18)
+
+                        Button("+") {
+                            settingsModel.addDuration()
+                        }
+                        .frame(width: 36)
+                    }
+                }
+            }
+            .padding(EdgeInsets(top: 14, leading: 20, bottom: 16, trailing: 20))
+        }
+        .frame(width: 360, height: 360, alignment: .topLeading)
+    }
+}
+
+private struct TimedServerModeDurationRow: View {
+    let title: String
+    let isSelected: Bool
+    var usesAlternateBackground = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.system(size: 16, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(.primary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 30)
+            .background(rowBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(backgroundColor)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.16)
+        }
+
+        if usesAlternateBackground {
+            return Color.secondary.opacity(0.08)
+        }
+
+        return Color.clear
     }
 }
 
@@ -407,6 +536,151 @@ private struct LinearProgressIndicator: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSProgressIndicator, context: Context) {
         nsView.doubleValue = max(0, min(1, value))
+    }
+}
+
+@MainActor
+private final class TimedServerModeSettingsViewModel: ObservableObject {
+    @Published var selectedDurationMinutes: Int?
+
+    private let appState: AppState
+
+    init(appState: AppState) {
+        self.appState = appState
+        selectedDurationMinutes = nil
+    }
+
+    var canRemoveSelectedDuration: Bool {
+        guard let selectedDurationMinutes else {
+            return false
+        }
+
+        return appState.timedServerModeDurationOptions.contains(selectedDurationMinutes)
+            && appState.timedServerModeDurationOptions.count > 1
+    }
+
+    func selectDuration(_ durationMinutes: Int?) {
+        selectedDurationMinutes = durationMinutes
+    }
+
+    func removeSelectedDuration() {
+        guard let selectedDurationMinutes else {
+            return
+        }
+
+        appState.removeTimedServerModeDuration(minutes: selectedDurationMinutes)
+
+        if appState.timedServerModeDurationOptions.contains(selectedDurationMinutes) {
+            self.selectedDurationMinutes = selectedDurationMinutes
+        } else {
+            self.selectedDurationMinutes = nil
+        }
+    }
+
+    func resetDurations() {
+        appState.resetTimedServerModeDurations()
+        selectedDurationMinutes = nil
+    }
+
+    func addDuration() {
+        guard let durationMinutes = Self.requestDurationMinutes(),
+              let addedDuration = appState.addTimedServerModeDuration(minutes: durationMinutes) else {
+            return
+        }
+
+        selectedDurationMinutes = addedDuration
+    }
+
+    private static func requestDurationMinutes() -> Int? {
+        while true {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = AppText.addTimedServerModeDurationTitle
+            alert.informativeText = AppText.addTimedServerModeDurationMessage
+            alert.addButton(withTitle: AppText.addTimedServerModeDurationConfirm)
+            alert.addButton(withTitle: AppText.cancel)
+
+            let hoursField = makeDurationInputField()
+            hoursField.placeholderString = "0"
+
+            let minutesField = makeDurationInputField()
+            minutesField.placeholderString = "0"
+
+            let hoursLabel = NSTextField(labelWithString: AppText.timedServerModeHoursUnit)
+            let minutesLabel = NSTextField(labelWithString: AppText.timedServerModeMinutesUnit)
+
+            let stackView = NSStackView(views: [
+                hoursField,
+                hoursLabel,
+                minutesField,
+                minutesLabel
+            ])
+            stackView.orientation = .horizontal
+            stackView.alignment = .centerY
+            stackView.spacing = 8
+            stackView.translatesAutoresizingMaskIntoConstraints = false
+
+            let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 34))
+            accessoryView.addSubview(stackView)
+            NSLayoutConstraint.activate([
+                stackView.centerXAnchor.constraint(equalTo: accessoryView.centerXAnchor),
+                stackView.centerYAnchor.constraint(equalTo: accessoryView.centerYAnchor)
+            ])
+            alert.accessoryView = accessoryView
+            alert.window.initialFirstResponder = hoursField
+
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                return nil
+            }
+
+            if let durationMinutes = parsedDurationMinutes(
+                hours: hoursField.stringValue,
+                minutes: minutesField.stringValue
+            ) {
+                return durationMinutes
+            }
+
+            let invalidAlert = NSAlert()
+            invalidAlert.alertStyle = .warning
+            invalidAlert.messageText = AppText.invalidTimedServerModeDurationComponents
+            invalidAlert.addButton(withTitle: AppText.ok)
+            invalidAlert.runModal()
+        }
+    }
+
+    private static func makeDurationInputField() -> NSTextField {
+        let field = NSTextField(frame: .zero)
+        field.alignment = .right
+        field.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        field.isBezeled = true
+        field.isBordered = true
+        field.bezelStyle = .roundedBezel
+        field.drawsBackground = true
+        field.backgroundColor = .textBackgroundColor
+        field.focusRingType = .default
+        field.usesSingleLineMode = true
+        field.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            field.widthAnchor.constraint(equalToConstant: 76),
+            field.heightAnchor.constraint(equalToConstant: 28)
+        ])
+        return field
+    }
+
+    private static func parsedDurationMinutes(hours: String, minutes: String) -> Int? {
+        let trimmedHours = hours.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMinutes = minutes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let hourValue = trimmedHours.isEmpty ? 0 : Int(trimmedHours),
+              let minuteValue = trimmedMinutes.isEmpty ? 0 : Int(trimmedMinutes),
+              hourValue >= 0,
+              minuteValue >= 0,
+              minuteValue < 60 else {
+            return nil
+        }
+
+        let totalMinutes = hourValue * 60 + minuteValue
+        return AppState.normalizedTimedServerModeDuration(totalMinutes)
     }
 }
 

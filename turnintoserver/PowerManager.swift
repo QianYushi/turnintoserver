@@ -3,6 +3,9 @@ import Foundation
 @MainActor
 final class PowerManager {
     private var caffeinateProcess: Process?
+    private var timedDisplayAwakeProcess: Process?
+    private var timedUserActivityProcess: Process?
+    private var timedUserActivityTimer: Timer?
     private let builtInDisplayDimmer = BuiltInDisplayDimmer()
 
     var isServerModeActive: Bool {
@@ -36,6 +39,7 @@ final class PowerManager {
     }
 
     func restoreSleepSettings() async -> PowerCommandResult {
+        stopTimedDisplayAwake()
         stopCaffeinate()
 
         let result = await setSleepDisabled(false)
@@ -52,6 +56,16 @@ final class PowerManager {
 
     func restoreBuiltInDisplayBrightness() -> PowerCommandResult {
         builtInDisplayDimmer.restoreBuiltInDisplays()
+    }
+
+    @discardableResult
+    func setTimedDisplayAwakeEnabled(_ isEnabled: Bool) -> PowerCommandResult {
+        if isEnabled {
+            return startTimedDisplayAwake()
+        }
+
+        stopTimedDisplayAwake()
+        return .success("OK")
     }
 
     func detectSleepDisabled() async -> Bool {
@@ -192,6 +206,95 @@ final class PowerManager {
         }
 
         caffeinateProcess = nil
+    }
+
+    private func startTimedDisplayAwake() -> PowerCommandResult {
+        if timedDisplayAwakeProcess?.isRunning == true {
+            startTimedUserActivityPulses()
+            return .success("OK")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
+        process.arguments = [
+            "-d",
+            "-w",
+            "\(ProcessInfo.processInfo.processIdentifier)"
+        ]
+
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            return .failure(AppText.caffeinateLaunchFailed(error.localizedDescription))
+        }
+
+        guard process.isRunning else {
+            let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let message = String(data: stderr, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(Self.shortFailureMessage(message ?? AppText.caffeinateExited))
+        }
+
+        timedDisplayAwakeProcess = process
+        startTimedUserActivityPulses()
+        return .success("OK")
+    }
+
+    private func stopTimedDisplayAwake() {
+        stopTimedUserActivityPulses()
+
+        if timedDisplayAwakeProcess?.isRunning == true {
+            timedDisplayAwakeProcess?.terminate()
+        }
+
+        timedDisplayAwakeProcess = nil
+    }
+
+    private func startTimedUserActivityPulses() {
+        guard timedUserActivityTimer == nil else {
+            return
+        }
+
+        sendTimedUserActivityPulse()
+
+        let timer = Timer(timeInterval: 55, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.sendTimedUserActivityPulse()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        timedUserActivityTimer = timer
+    }
+
+    private func stopTimedUserActivityPulses() {
+        timedUserActivityTimer?.invalidate()
+        timedUserActivityTimer = nil
+
+        if timedUserActivityProcess?.isRunning == true {
+            timedUserActivityProcess?.terminate()
+        }
+
+        timedUserActivityProcess = nil
+    }
+
+    private func sendTimedUserActivityPulse() {
+        if timedUserActivityProcess?.isRunning == true {
+            timedUserActivityProcess?.terminate()
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
+        process.arguments = ["-u", "-t", "70"]
+
+        do {
+            try process.run()
+            timedUserActivityProcess = process
+        } catch {
+            timedUserActivityProcess = nil
+        }
     }
 
     private func runPrivileged(_ command: String) async -> PowerCommandResult {

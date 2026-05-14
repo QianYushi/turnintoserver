@@ -228,6 +228,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
     private var aboutWindowController: AboutWindowController?
+    private var timedServerModeSettingsWindowController: TimedServerModeSettingsWindowController?
     private var lowBatterySettingsWindowController: LowBatterySettingsWindowController?
     private var shortcutSettingsWindowController: ShortcutSettingsWindowController?
     private var cancellables = Set<AnyCancellable>()
@@ -237,6 +238,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private weak var serverModeRowView: MenuActionRowView?
     private weak var statusSummaryRowView: MenuTextRowView?
     private weak var runtimeRowView: MenuTextRowView?
+    private weak var timedServerModeMenuItem: NSMenuItem?
+    private weak var timedServerModeRowView: MenuSubmenuRowView?
+    private var timedDurationRowViews: [Int: MenuStateActionRowView] = [:]
+    private weak var timedPreventDisplaySleepRowView: MenuStateActionRowView?
+    private var timedSubmenuDurationOptions: [Int] = []
     private weak var batteryRowView: MenuToggleRowView?
     private weak var lowBatteryRowView: MenuToggleRowView?
     private weak var shortcutsRowView: MenuToggleRowView?
@@ -321,6 +327,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             appState.$isLaunchAtLoginChanging.map { _ in () }.eraseToAnyPublisher(),
             appState.$isCommandRunning.map { _ in () }.eraseToAnyPublisher(),
             appState.$serverModeRuntimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+            appState.$timedServerModeEndDate.map { _ in () }.eraseToAnyPublisher(),
+            appState.$timedServerModeSelectedDurationMinutes.map { _ in () }.eraseToAnyPublisher(),
+            appState.$timedServerModeRemainingDisplay.map { _ in () }.eraseToAnyPublisher(),
+            appState.$timedServerModeDurationOptions.map { _ in () }.eraseToAnyPublisher(),
+            appState.$timedServerModePreventDisplaySleep.map { _ in () }.eraseToAnyPublisher(),
             appState.$powerSource.map { _ in () }.eraseToAnyPublisher()
         ]
 
@@ -355,6 +366,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
+        appState.handleDisplayConfigurationDidChange()
         refreshStatusAndMenuForCurrentDisplay()
 
         DispatchQueue.main.async { [weak self] in
@@ -489,6 +501,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         serverModeRowView = nil
         statusSummaryRowView = nil
         runtimeRowView = nil
+        timedServerModeMenuItem = nil
+        timedServerModeRowView = nil
+        timedDurationRowViews = [:]
+        timedPreventDisplaySleepRowView = nil
+        timedSubmenuDurationOptions = []
         batteryRowView = nil
         lowBatteryRowView = nil
         shortcutsRowView = nil
@@ -521,13 +538,25 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         statusSummaryRowView = statusSummaryView
         menu.addItem(statusItem)
 
-        if let runtimeDisplay = appState.serverModeRuntimeDisplay {
+        if let runtimeDisplay = appState.serverModeTimeDisplay {
             let runtimeItem = NSMenuItem()
             let runtimeView = MenuTextRowView(title: runtimeDisplay)
             runtimeItem.view = runtimeView
             runtimeRowView = runtimeView
             menu.addItem(runtimeItem)
         }
+
+        let timedServerModeItem = NSMenuItem()
+        let timedServerModeView = MenuSubmenuRowView(
+            title: AppText.timedServerMode,
+            isOn: appState.hasTimedServerModeLimit,
+            isEnabled: !appState.isCommandRunning
+        )
+        timedServerModeItem.view = timedServerModeView
+        timedServerModeMenuItem = timedServerModeItem
+        timedServerModeRowView = timedServerModeView
+        configureTimedServerModeMenuItem(timedServerModeItem)
+        menu.addItem(timedServerModeItem)
 
         menu.addItem(.separator())
 
@@ -550,7 +579,6 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             isOn: appState.lowBatteryNotificationsEnabled,
             isToggleEnabled: appState.lowBatteryNotificationsEnabled
                 || AppState.canEnableLowBatteryNotifications(),
-            tooltip: AppText.lowBatteryNotificationsRequireTest,
             settingsButtonTitle: AppText.configureLowBatteryNotifications,
             target: self,
             toggleAction: #selector(toggleLowBatteryNotifications(_:)),
@@ -628,6 +656,110 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         return item
     }
 
+    private func configureTimedServerModeMenuItem(_ item: NSMenuItem) {
+        item.title = ""
+        item.state = .off
+        item.isEnabled = !appState.isCommandRunning
+        let durationOptions = appState.timedServerModeDurationMenuOptions
+        timedServerModeRowView?.update(
+            title: AppText.timedServerMode,
+            isOn: appState.hasTimedServerModeLimit,
+            isEnabled: !appState.isCommandRunning
+        )
+
+        if item.submenu == nil || timedSubmenuDurationOptions != durationOptions {
+            item.submenu = buildTimedServerModeSubmenu(durationOptions: durationOptions)
+        } else {
+            updateTimedServerModeSubmenuRows()
+        }
+    }
+
+    private func buildTimedServerModeSubmenu(durationOptions: [Int]) -> NSMenu {
+        let submenu = NSMenu()
+        timedDurationRowViews = [:]
+        timedSubmenuDurationOptions = durationOptions
+
+        for durationMinutes in durationOptions {
+            let durationItem = makeTimedSubmenuActionItem(
+                title: AppText.timedServerModeDuration(minutes: durationMinutes),
+                state: appState.hasTimedServerModeLimit
+                    && appState.timedServerModeSelectedDurationMinutes == durationMinutes ? .on : .off,
+                isEnabled: !appState.isCommandRunning,
+                action: #selector(selectTimedServerModeDuration(_:)),
+                representedObject: durationMinutes
+            )
+            timedDurationRowViews[durationMinutes] = durationItem.view as? MenuStateActionRowView
+            submenu.addItem(durationItem)
+        }
+
+        submenu.addItem(.separator())
+
+        let preventDisplaySleepItem = makeTimedSubmenuActionItem(
+            title: AppText.preventTimedServerModeDisplaySleep,
+            state: timedPreventDisplaySleepState,
+            isEnabled: appState.canToggleTimedServerModePreventDisplaySleep,
+            action: #selector(toggleTimedServerModePreventDisplaySleep(_:)),
+            representedObject: nil
+        )
+        timedPreventDisplaySleepRowView = preventDisplaySleepItem.view as? MenuStateActionRowView
+        submenu.addItem(preventDisplaySleepItem)
+
+        let settingsItem = NSMenuItem(
+            title: AppText.timedServerModeSettings,
+            action: #selector(showTimedServerModeSettings(_:)),
+            keyEquivalent: ""
+        )
+        settingsItem.target = self
+        submenu.addItem(settingsItem)
+
+        return submenu
+    }
+
+    private var timedPreventDisplaySleepState: MenuItemState {
+        guard appState.timedServerModePreventDisplaySleep else {
+            return .off
+        }
+
+        return appState.hasTimedServerModeLimit ? .on : .mixed
+    }
+
+    private func makeTimedSubmenuActionItem(
+        title: String,
+        state: MenuItemState,
+        isEnabled: Bool,
+        action: Selector,
+        representedObject: Any?
+    ) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.view = MenuStateActionRowView(
+            title: title,
+            state: state,
+            isEnabled: isEnabled,
+            target: self,
+            action: action,
+            representedObject: representedObject,
+            width: MenuRowMetric.submenuWidth
+        )
+        return item
+    }
+
+    private func updateTimedServerModeSubmenuRows() {
+        for durationMinutes in timedSubmenuDurationOptions {
+            timedDurationRowViews[durationMinutes]?.update(
+                title: AppText.timedServerModeDuration(minutes: durationMinutes),
+                state: appState.hasTimedServerModeLimit
+                    && appState.timedServerModeSelectedDurationMinutes == durationMinutes ? .on : .off,
+                isEnabled: !appState.isCommandRunning
+            )
+        }
+
+        timedPreventDisplaySleepRowView?.update(
+            title: AppText.preventTimedServerModeDisplaySleep,
+            state: timedPreventDisplaySleepState,
+            isEnabled: appState.canToggleTimedServerModePreventDisplaySleep
+        )
+    }
+
     private func updateStatusButton() {
         guard let button = statusItem.button else {
             return
@@ -657,12 +789,14 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func updateVisibleMenuRowsOrRebuild() {
-        let runtimeShouldBeVisible = appState.serverModeRuntimeDisplay != nil
+        let runtimeShouldBeVisible = appState.serverModeTimeDisplay != nil
         let runtimeIsVisible = runtimeRowView != nil
 
         guard runtimeShouldBeVisible == runtimeIsVisible,
               let serverModeRowView,
               let statusSummaryRowView,
+              let timedServerModeMenuItem,
+              let timedServerModeRowView,
               let batteryRowView,
               let lowBatteryRowView,
               let shortcutsRowView,
@@ -681,7 +815,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             isEnabled: !appState.isCommandRunning
         )
         statusSummaryRowView.update(title: appState.statusSummaryDisplay)
-        runtimeRowView?.update(title: appState.serverModeRuntimeDisplay ?? "")
+        runtimeRowView?.update(title: appState.serverModeTimeDisplay ?? "")
+        configureTimedServerModeMenuItem(timedServerModeMenuItem)
         batteryRowView.update(
             title: AppText.allowBatteryServerMode,
             isOn: appState.allowBatteryServerMode,
@@ -692,8 +827,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             title: AppText.lowBatteryNotifications,
             isOn: appState.lowBatteryNotificationsEnabled,
             isToggleEnabled: appState.lowBatteryNotificationsEnabled
-                || AppState.canEnableLowBatteryNotifications(),
-            tooltip: AppText.lowBatteryNotificationsRequireTest
+                || AppState.canEnableLowBatteryNotifications()
         )
         shortcutsRowView.update(
             title: AppText.enableShortcuts,
@@ -708,17 +842,23 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         )
         quitMenuItem?.isEnabled = !appState.isCommandRunning
 
-        [
+        let visibleRowViews = [
             serverModeRowView,
             statusSummaryRowView,
             runtimeRowView,
+            timedServerModeRowView,
             batteryRowView,
             lowBatteryRowView,
             shortcutsRowView,
             launchAtLoginRowView
         ]
-        .compactMap { $0 }
-        .forEach { view in
+
+        let visibleTimedSubmenuRowViews: [NSView] = [
+            timedPreventDisplaySleepRowView
+        ]
+        .compactMap { $0 } + Array(timedDurationRowViews.values)
+
+        (visibleRowViews.compactMap { $0 } + visibleTimedSubmenuRowViews).forEach { view in
             view.layoutSubtreeIfNeeded()
             view.displayIfNeeded()
             view.window?.displayIfNeeded()
@@ -810,6 +950,61 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         refreshMenuSoon()
     }
 
+    @objc private func toggleTimedServerModePreventDisplaySleep(_ sender: Any?) {
+        appState.toggleTimedServerModePreventDisplaySleep()
+        refreshMenuSoon()
+    }
+
+    @objc private func selectTimedServerModeDuration(_ sender: Any?) {
+        let durationMinutes: Int?
+        if let button = sender as? MenuRowButton,
+           let number = button.representedObject as? NSNumber {
+            durationMinutes = number.intValue
+        } else if let button = sender as? MenuRowButton,
+                  let value = button.representedObject as? Int {
+            durationMinutes = value
+        } else if let item = sender as? NSMenuItem,
+                  let number = item.representedObject as? NSNumber {
+            durationMinutes = number.intValue
+        } else if let item = sender as? NSMenuItem {
+            durationMinutes = item.representedObject as? Int
+        } else {
+            durationMinutes = nil
+        }
+
+        guard let durationMinutes else {
+            return
+        }
+
+        Task { @MainActor in
+            if appState.hasTimedServerModeLimit,
+               appState.timedServerModeSelectedDurationMinutes == durationMinutes {
+                appState.clearTimedServerModeTimer()
+            } else {
+                await appState.startTimedServerMode(durationMinutes: durationMinutes)
+            }
+            updateStatusButton()
+            refreshMenuSoon()
+        }
+    }
+
+    @objc private func showTimedServerModeSettings(_ sender: Any?) {
+        menu.cancelTracking()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            if self.timedServerModeSettingsWindowController == nil {
+                self.timedServerModeSettingsWindowController = TimedServerModeSettingsWindowController(
+                    appState: self.appState
+                )
+            }
+            self.timedServerModeSettingsWindowController?.show()
+        }
+    }
+
     @objc private func showLowBatterySettings(_ sender: Any?) {
         menu.cancelTracking()
 
@@ -855,6 +1050,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
 private enum MenuRowMetric {
     static let width: CGFloat = 250
+    static let submenuWidth: CGFloat = 190
     static let height: CGFloat = 30
     static let textHeight: CGFloat = 26
     static let indicatorLeading: CGFloat = 8
@@ -862,6 +1058,23 @@ private enum MenuRowMetric {
     static let titleLeading: CGFloat = 34
     static let trailing: CGFloat = 10
     static let shortcutTrailing: CGFloat = 12
+}
+
+private enum MenuItemState {
+    case off
+    case on
+    case mixed
+
+    var glyph: String {
+        switch self {
+        case .off:
+            return ""
+        case .on:
+            return "✓"
+        case .mixed:
+            return "−"
+        }
+    }
 }
 
 private class HighlightedMenuRowView: NSView {
@@ -961,6 +1174,7 @@ private class HighlightedMenuRowView: NSView {
 
 private final class MenuRowButton: NSButton {
     weak var rowView: HighlightedMenuRowView?
+    var representedObject: Any?
 
     override var acceptsFirstResponder: Bool {
         false
@@ -970,6 +1184,84 @@ private final class MenuRowButton: NSButton {
         rowView?.setPressed(true)
         super.mouseDown(with: event)
         rowView?.setPressed(false)
+    }
+}
+
+private final class MenuStateActionRowView: HighlightedMenuRowView {
+    private let checkmarkLabel = NSTextField(labelWithString: "")
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let actionButton = MenuRowButton()
+
+    init(
+        title: String,
+        state: MenuItemState,
+        isEnabled: Bool,
+        target: AnyObject,
+        action: Selector,
+        representedObject: Any?,
+        width: CGFloat
+    ) {
+        super.init(width: width, height: MenuRowMetric.height, isRowEnabled: isEnabled)
+
+        checkmarkLabel.stringValue = state.glyph
+        checkmarkLabel.alignment = .center
+        checkmarkLabel.font = NSFont.menuFont(ofSize: 0)
+        checkmarkLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.stringValue = title
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        actionButton.isBordered = false
+        actionButton.isTransparent = true
+        actionButton.focusRingType = .none
+        actionButton.title = ""
+        actionButton.target = target
+        actionButton.action = action
+        actionButton.representedObject = representedObject
+        actionButton.isEnabled = isEnabled
+        actionButton.rowView = self
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(checkmarkLabel)
+        addSubview(titleLabel)
+        addSubview(actionButton)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: MenuRowMetric.height),
+            widthAnchor.constraint(equalToConstant: width),
+
+            checkmarkLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.indicatorLeading),
+            checkmarkLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            checkmarkLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.indicatorWidth),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.titleLeading),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -MenuRowMetric.trailing),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            actionButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            actionButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            actionButton.topAnchor.constraint(equalTo: topAnchor),
+            actionButton.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        updateHighlightAppearance()
+    }
+
+    func update(title: String, state: MenuItemState, isEnabled: Bool) {
+        titleLabel.stringValue = title
+        checkmarkLabel.stringValue = state.glyph
+        actionButton.isEnabled = isEnabled
+        isRowEnabled = isEnabled
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    override fileprivate func applyHighlightAppearance(isHighlighted: Bool) {
+        let color = contentTextColor(isHighlighted: isHighlighted)
+        checkmarkLabel.textColor = color
+        titleLabel.textColor = color
     }
 }
 
@@ -1103,6 +1395,69 @@ private final class MenuTextRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         return nil
+    }
+}
+
+private final class MenuSubmenuRowView: HighlightedMenuRowView {
+    private let checkmarkLabel = NSTextField(labelWithString: "")
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let chevronLabel = NSTextField(labelWithString: "›")
+
+    init(title: String, isOn: Bool, isEnabled: Bool) {
+        super.init(width: MenuRowMetric.width, height: MenuRowMetric.height, isRowEnabled: isEnabled)
+
+        checkmarkLabel.stringValue = isOn ? "✓" : ""
+        checkmarkLabel.alignment = .center
+        checkmarkLabel.font = NSFont.menuFont(ofSize: 0)
+        checkmarkLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.stringValue = title
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        chevronLabel.alignment = .right
+        chevronLabel.font = NSFont.menuFont(ofSize: 0)
+        chevronLabel.setContentHuggingPriority(.required, for: .horizontal)
+        chevronLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        chevronLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(checkmarkLabel)
+        addSubview(titleLabel)
+        addSubview(chevronLabel)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: MenuRowMetric.height),
+            widthAnchor.constraint(equalToConstant: MenuRowMetric.width),
+
+            checkmarkLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.indicatorLeading),
+            checkmarkLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            checkmarkLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.indicatorWidth),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.titleLeading),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevronLabel.leadingAnchor, constant: -10),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            chevronLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuRowMetric.shortcutTrailing),
+            chevronLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+
+        updateHighlightAppearance()
+    }
+
+    func update(title: String, isOn: Bool, isEnabled: Bool) {
+        titleLabel.stringValue = title
+        checkmarkLabel.stringValue = isOn ? "✓" : ""
+        isRowEnabled = isEnabled
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    override fileprivate func applyHighlightAppearance(isHighlighted: Bool) {
+        let color = contentTextColor(isHighlighted: isHighlighted)
+        checkmarkLabel.textColor = color
+        titleLabel.textColor = color
+        chevronLabel.textColor = isHighlighted ? color : .tertiaryLabelColor
     }
 }
 
@@ -1292,45 +1647,50 @@ private enum MenuBarStatusIconRenderer {
         case .idle:
             return ""
         case .waitingForPowerAdapter:
-            return "ON"
+            return ""
         case .serverModePowerOnly:
-            return "ON"
+            return ""
         case .serverModeBatteryAllowed:
-            return "BAT"
+            return ""
         }
     }
 
     private static func statusDot(color: NSColor, text: String) -> NSImage {
         let size = NSSize(width: 18, height: 18)
-        let image = drawingImage(size: size) { bounds in
-            let circleRect = NSRect(
-                x: bounds.midX - 7.5,
-                y: bounds.midY - 7.5,
-                width: 15,
-                height: 15
-            )
-            let circle = NSBezierPath(ovalIn: circleRect)
-            color.setFill()
-            circle.fill()
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
 
-            NSColor.white.withAlphaComponent(0.95).setStroke()
-            circle.lineWidth = 1
-            circle.stroke()
+        let bounds = NSRect(origin: .zero, size: size)
+        let circleRect = NSRect(
+            x: bounds.midX - 7.5,
+            y: bounds.midY - 7.5,
+            width: 15,
+            height: 15
+        )
+        let circle = NSBezierPath(ovalIn: circleRect)
+        color.setFill()
+        circle.fill()
 
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let attributedText = NSAttributedString(string: text, attributes: attributes)
-            let textSize = attributedText.size()
-            let textRect = NSRect(
-                x: bounds.midX - textSize.width / 2,
-                y: bounds.midY - textSize.height / 2 - 0.5,
-                width: textSize.width,
-                height: textSize.height
-            )
-            attributedText.draw(in: textRect)
-        }
+        NSColor.white.withAlphaComponent(0.95).setStroke()
+        circle.lineWidth = 1
+        circle.stroke()
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: NSColor.white
+        ]
+        let attributedText = NSAttributedString(string: text, attributes: attributes)
+        let textSize = attributedText.size()
+        let textRect = NSRect(
+            x: bounds.midX - textSize.width / 2,
+            y: bounds.midY - textSize.height / 2 - 0.5,
+            width: textSize.width,
+            height: textSize.height
+        )
+        attributedText.draw(in: textRect)
+
+        image.cacheMode = .never
         image.isTemplate = false
         return image
     }

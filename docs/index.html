@@ -4,19 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TurnIntoServer - Use a MacBook as a closed-lid server</title>
-  <meta name="description" content="TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed while setting the built-in display to zero brightness." data-i18n-content="meta.description">
+  <meta name="description" content="TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed, supports timed Server Mode, and sets the built-in display to zero brightness." data-i18n-content="meta.description">
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://qianyushi.github.io/turnintoserver/">
   <meta property="og:type" content="website">
   <meta property="og:title" content="TurnIntoServer - Use a MacBook as a closed-lid server" data-i18n-content="meta.title">
-  <meta property="og:description" content="Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook." data-i18n-content="meta.ogDescription">
+  <meta property="og:description" content="Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook, including timed Server Mode runs." data-i18n-content="meta.ogDescription">
   <meta property="og:url" content="https://qianyushi.github.io/turnintoserver/">
   <meta property="og:image" content="https://qianyushi.github.io/turnintoserver/icon.png">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="zh_CN">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="TurnIntoServer - Use a MacBook as a closed-lid server" data-i18n-content="meta.title">
-  <meta name="twitter:description" content="A small macOS menu bar app for running a MacBook as a closed-lid server." data-i18n-content="meta.twitterDescription">
+  <meta name="twitter:description" content="A small macOS menu bar app for running a MacBook as a closed-lid server, with optional timed runs." data-i18n-content="meta.twitterDescription">
   <meta name="twitter:image" content="https://qianyushi.github.io/turnintoserver/icon.png">
   <link rel="icon" href="https://qianyushi.github.io/turnintoserver/icon.png" type="image/png">
   <script>
@@ -723,12 +723,12 @@
       "name": "TurnIntoServer",
       "applicationCategory": "UtilitiesApplication",
       "operatingSystem": "macOS",
-      "description": "A macOS menu bar app that helps use a MacBook as a closed-lid server while setting the built-in display to zero brightness.",
+      "description": "A macOS menu bar app that helps use a MacBook as a closed-lid server while setting the built-in display to zero brightness, with optional timed runs.",
       "url": "https://qianyushi.github.io/turnintoserver/",
       "downloadUrl": "https://github.com/QianYushi/turnintoserver/releases/latest",
       "codeRepository": "https://github.com/QianYushi/turnintoserver",
       "image": "https://qianyushi.github.io/turnintoserver/icon.png",
-      "softwareVersion": "1.1",
+      "softwareVersion": "1.2",
       "author": {
         "@type": "Person",
         "name": "qianyushi"
@@ -787,7 +787,7 @@
           <div class="menu-bar" aria-hidden="true">
             <span data-i18n="mock.wifi">Wi-Fi</span>
             <span data-i18n="mock.battery">Battery</span>
-            <span class="status-pill"><span class="status-dot">S</span> <span data-i18n="mock.on">ON</span></span>
+            <span class="status-pill"><span class="status-dot">S</span></span>
           </div>
           <div class="menu">
             <div class="menu-row">
@@ -804,6 +804,12 @@
               <span></span>
               <span data-i18n="mock.running">Running for 2h 18m</span>
               <span></span>
+            </div>
+            <div class="menu-rule"></div>
+            <div class="menu-row">
+              <span class="check" aria-hidden="true"></span>
+              <span data-i18n="mock.timed">Start for a Duration</span>
+              <span>›</span>
             </div>
             <div class="menu-rule"></div>
             <div class="menu-row">
@@ -846,6 +852,10 @@
         <article class="feature">
           <h3 data-i18n="features.batteryTitle">Respect battery use</h3>
           <p data-i18n="features.batteryText">Server Mode pauses on battery by default, resumes when power returns, and can optionally keep running on battery when you need it.</p>
+        </article>
+        <article class="feature">
+          <h3 data-i18n="features.timedTitle">Run for a set duration</h3>
+          <p data-i18n="features.timedText">Start Server Mode for 30 minutes, 1 hour, 2 hours, or custom durations, then automatically restore normal macOS power behavior.</p>
         </article>
         <article class="feature">
           <h3 data-i18n="features.alertsTitle">Low battery alerts</h3>
@@ -908,10 +918,10 @@
       var translations = {
         en: {
           "meta.title": "TurnIntoServer - Use a MacBook as a closed-lid server",
-          "meta.description": "TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed while setting the built-in display to zero brightness.",
-          "meta.ogDescription": "Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook.",
-          "meta.twitterDescription": "A small macOS menu bar app for running a MacBook as a closed-lid server.",
-          "schema.description": "A macOS menu bar app that helps use a MacBook as a closed-lid server while setting the built-in display to zero brightness.",
+          "meta.description": "TurnIntoServer is a macOS menu bar app that keeps a plugged-in MacBook running with the lid closed, supports timed Server Mode, and sets the built-in display to zero brightness.",
+          "meta.ogDescription": "Keep SSH, remote desktop, local services, and development servers running on a closed-lid MacBook, including timed Server Mode runs.",
+          "meta.twitterDescription": "A small macOS menu bar app for running a MacBook as a closed-lid server, with optional timed runs.",
+          "schema.description": "A macOS menu bar app that helps use a MacBook as a closed-lid server while setting the built-in display to zero brightness, with optional timed runs.",
           "nav.aria": "Primary navigation",
           "brand.aria": "TurnIntoServer home",
           "nav.features": "Features",
@@ -929,10 +939,10 @@
           "mock.aria": "TurnIntoServer menu bar screenshot",
           "mock.wifi": "Wi-Fi",
           "mock.battery": "Battery",
-          "mock.on": "ON",
           "mock.stop": "Stop Server Mode",
           "mock.status": "Keeps running with lid closed",
           "mock.running": "Running for 2h 18m",
+          "mock.timed": "Start for a Duration",
           "mock.batteryMode": "Allow Server Mode on Battery",
           "mock.lowBattery": "Low Battery Alerts",
           "mock.setup": "Set Up",
@@ -946,6 +956,8 @@
           "features.dimText": "When the lid closes, TurnIntoServer tries to set the MacBook display to zero brightness without intentionally blanking external monitors.",
           "features.batteryTitle": "Respect battery use",
           "features.batteryText": "Server Mode pauses on battery by default, resumes when power returns, and can optionally keep running on battery when you need it.",
+          "features.timedTitle": "Run for a set duration",
+          "features.timedText": "Start Server Mode for 30 minutes, 1 hour, 2 hours, or custom durations, then automatically restore normal macOS power behavior.",
           "features.alertsTitle": "Low battery alerts",
           "features.alertsText": "When battery mode is enabled, the app can send low battery alerts through iMessage or Bark at 50% and 20%.",
           "features.menuTitle": "Menu bar workflow",
@@ -972,10 +984,10 @@
         },
         zh: {
           "meta.title": "TurnIntoServer - 把 MacBook 当作合盖小服务器",
-          "meta.description": "TurnIntoServer 是一个 macOS 菜单栏工具，可以让接电源的 MacBook 合盖后继续运行，并把内建屏幕亮度降到 0。",
-          "meta.ogDescription": "让合盖的 MacBook 继续运行 SSH、远程桌面、本地服务和开发服务器。",
-          "meta.twitterDescription": "一个用于把 MacBook 当作合盖小服务器的 macOS 菜单栏工具。",
-          "schema.description": "一个 macOS 菜单栏工具，帮助你把 MacBook 当作合盖小服务器使用，并把内建屏幕亮度降到 0。",
+          "meta.description": "TurnIntoServer 是一个 macOS 菜单栏工具，可以让接电源的 MacBook 合盖后继续运行，支持按时长启动，并把内建屏幕亮度降到 0。",
+          "meta.ogDescription": "让合盖的 MacBook 继续运行 SSH、远程桌面、本地服务和开发服务器，也可以按时长启动 Server Mode。",
+          "meta.twitterDescription": "一个用于把 MacBook 当作合盖小服务器的 macOS 菜单栏工具，支持按时长启动。",
+          "schema.description": "一个 macOS 菜单栏工具，帮助你把 MacBook 当作合盖小服务器使用，并把内建屏幕亮度降到 0，支持按时长启动。",
           "nav.aria": "主导航",
           "brand.aria": "TurnIntoServer 首页",
           "nav.features": "功能",
@@ -993,10 +1005,10 @@
           "mock.aria": "TurnIntoServer 菜单栏截图",
           "mock.wifi": "Wi-Fi",
           "mock.battery": "电池",
-          "mock.on": "开",
           "mock.stop": "关闭 Server 模式",
           "mock.status": "合盖也会保持运行",
           "mock.running": "已经运行2小时18分钟",
+          "mock.timed": "在一段时间内启动",
           "mock.batteryMode": "电池也允许 Server 模式",
           "mock.lowBattery": "推送低电量通知",
           "mock.setup": "设置",
@@ -1010,6 +1022,8 @@
           "features.dimText": "合盖时，TurnIntoServer 会尽量只把 MacBook 内建屏幕亮度降到 0，不主动熄灭外接显示器。",
           "features.batteryTitle": "尊重电池状态",
           "features.batteryText": "Server Mode 默认会在电池供电时暂停，接回电源后自动恢复；需要时也可以手动允许电池模式。",
+          "features.timedTitle": "按时长启动",
+          "features.timedText": "可按 30 分钟、1 小时、2 小时或自定义时长启动 Server Mode，到点后自动关闭并恢复 macOS 原本的电源管理。",
           "features.alertsTitle": "低电量提醒",
           "features.alertsText": "启用电池模式后，App 可以在电量低于 50% 和 20% 时通过 iMessage 或 Bark 发送提醒。",
           "features.menuTitle": "菜单栏工作流",

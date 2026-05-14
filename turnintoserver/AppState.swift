@@ -11,7 +11,14 @@ final class AppState: ObservableObject {
         static let lastKnownPowerSource = "lastKnownPowerSource"
         static let serverModeRequested = "serverModeRequested"
         static let serverModeStartedAt = "serverModeStartedAt"
+        static let timedServerModeEndDate = "timedServerModeEndDate"
+        static let timedServerModeSelectedDurationMinutes = "timedServerModeSelectedDurationMinutes"
     }
+
+    static let builtInTimedServerModeDurationOptions = [30, 60, 120, 180, 360, 720]
+
+    private static let minimumTimedServerModeDurationMinutes = 1
+    private static let maximumTimedServerModeDurationMinutes = 7 * 24 * 60
 
     @Published private(set) var powerSource: PowerSource {
         didSet {
@@ -20,7 +27,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published private(set) var lidState: LidState = .unknown
+    @Published private(set) var lidState: LidState = .unknown {
+        didSet {
+            if oldValue != lidState {
+                updateTimedDisplayAwakeAssertion()
+            }
+        }
+    }
     @Published private(set) var serverModeActive = false {
         didSet {
             updateServerModeRuntimeTracking()
@@ -49,6 +62,45 @@ final class AppState: ObservableObject {
     }
     @Published private(set) var serverModeRuntimeDisplay: String? {
         didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var timedServerModeEndDate: Date? {
+        didSet {
+            if let timedServerModeEndDate {
+                defaults.set(timedServerModeEndDate, forKey: DefaultsKey.timedServerModeEndDate)
+            } else {
+                defaults.removeObject(forKey: DefaultsKey.timedServerModeEndDate)
+            }
+            updateTimedDisplayAwakeAssertion()
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var timedServerModeSelectedDurationMinutes: Int? {
+        didSet {
+            if let timedServerModeSelectedDurationMinutes {
+                defaults.set(timedServerModeSelectedDurationMinutes, forKey: DefaultsKey.timedServerModeSelectedDurationMinutes)
+            } else {
+                defaults.removeObject(forKey: DefaultsKey.timedServerModeSelectedDurationMinutes)
+            }
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var timedServerModeRemainingDisplay: String? {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var timedServerModeDurationOptions: [Int] {
+        didSet {
+            defaults.set(timedServerModeDurationOptions, forKey: AppDefaultsKey.timedServerModeDurationOptions)
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var timedServerModePreventDisplaySleep: Bool {
+        didSet {
+            defaults.set(timedServerModePreventDisplaySleep, forKey: AppDefaultsKey.timedServerModePreventDisplaySleep)
+            updateTimedDisplayAwakeAssertion()
             notifyMenuShouldRefresh()
         }
     }
@@ -91,6 +143,7 @@ final class AppState: ObservableObject {
     private let lidMonitor: LidStateMonitor
     private let powerManager: PowerManager
     private let launchAtLoginManager: LaunchAtLoginManager
+    private let shouldStopExpiredTimedServerModeOnStart: Bool
     private var hasStarted = false
     private var wakeObserver: NSObjectProtocol?
     private var screensWakeObserver: NSObjectProtocol?
@@ -98,6 +151,8 @@ final class AppState: ObservableObject {
     private var isBuiltInDisplayCommandRunning = false
     private var serverModeStartedAt: Date?
     private var runtimeTimer: Timer?
+    private var timedServerModeTimer: Timer?
+    private var isHandlingTimedServerModeExpiration = false
     private var batteryNotificationTimer: Timer?
     private var sentLowBatteryThresholds = Set<Int>()
     private var temporarilyAllowBatteryServerMode = false
@@ -122,7 +177,40 @@ final class AppState: ObservableObject {
         let canEnableSavedLowBatteryNotifications = Self.canEnableLowBatteryNotifications(defaults: defaults)
         lowBatteryNotificationsEnabled = savedLowBatteryNotificationsEnabled && canEnableSavedLowBatteryNotifications
         hotKeysEnabled = defaults.object(forKey: AppDefaultsKey.hotKeysEnabled) as? Bool ?? true
-        serverModeRequested = defaults.bool(forKey: DefaultsKey.serverModeRequested)
+        timedServerModePreventDisplaySleep = defaults.object(
+            forKey: AppDefaultsKey.timedServerModePreventDisplaySleep
+        ) as? Bool ?? false
+
+        let savedServerModeRequested = defaults.bool(forKey: DefaultsKey.serverModeRequested)
+        let savedTimedServerModeEndDate = defaults.object(forKey: DefaultsKey.timedServerModeEndDate) as? Date
+        let savedTimedServerModeIsExpired = savedTimedServerModeEndDate.map { $0 <= Date() } ?? false
+        shouldStopExpiredTimedServerModeOnStart = savedServerModeRequested && savedTimedServerModeIsExpired
+        let effectiveServerModeRequested = savedServerModeRequested && !savedTimedServerModeIsExpired
+        serverModeRequested = effectiveServerModeRequested
+
+        let savedTimedServerModeDurationOptions = defaults.array(forKey: AppDefaultsKey.timedServerModeDurationOptions) as? [Int]
+        let loadedTimedServerModeDurationOptions = Self.sanitizedTimedServerModeDurationOptions(
+            savedTimedServerModeDurationOptions ?? Self.builtInTimedServerModeDurationOptions
+        )
+        timedServerModeDurationOptions = loadedTimedServerModeDurationOptions
+
+        if let savedTimedServerModeEndDate,
+           !savedTimedServerModeIsExpired,
+           effectiveServerModeRequested {
+            timedServerModeEndDate = savedTimedServerModeEndDate
+            timedServerModeSelectedDurationMinutes = Self.normalizedTimedServerModeDuration(
+                defaults.object(forKey: DefaultsKey.timedServerModeSelectedDurationMinutes) as? Int
+            )
+        } else {
+            timedServerModeEndDate = nil
+            timedServerModeSelectedDurationMinutes = nil
+            defaults.removeObject(forKey: DefaultsKey.timedServerModeEndDate)
+            defaults.removeObject(forKey: DefaultsKey.timedServerModeSelectedDurationMinutes)
+            if savedTimedServerModeIsExpired {
+                defaults.set(false, forKey: DefaultsKey.serverModeRequested)
+            }
+        }
+        timedServerModeRemainingDisplay = nil
 
         let savedSource = defaults.string(forKey: DefaultsKey.lastKnownPowerSource)
         powerSource = savedSource.flatMap(PowerSource.init(rawValue:)) ?? .unknown
@@ -134,6 +222,8 @@ final class AppState: ObservableObject {
         }
 
         refreshLaunchAtLoginEnabled()
+        updateTimedServerModeRemainingDisplay()
+        startTimedServerModeTimerIfNeeded()
     }
 
     var menuBarStatusTitle: String {
@@ -178,6 +268,23 @@ final class AppState: ObservableObject {
         launchAtLoginManager.isSupported
     }
 
+    var hasTimedServerModeLimit: Bool {
+        timedServerModeEndDate != nil
+    }
+
+    var canToggleTimedServerModePreventDisplaySleep: Bool {
+        hasTimedServerModeLimit && !isCommandRunning
+    }
+
+    var timedServerModeDurationMenuOptions: [Int] {
+        var durations = timedServerModeDurationOptions
+        if let timedServerModeSelectedDurationMinutes,
+           !durations.contains(timedServerModeSelectedDurationMinutes) {
+            durations.append(timedServerModeSelectedDurationMinutes)
+        }
+        return Self.sanitizedTimedServerModeDurationOptions(durations)
+    }
+
     var statusSummaryDisplay: String {
         guard serverModeRequested else {
             return AppText.notStarted
@@ -188,6 +295,119 @@ final class AppState: ObservableObject {
         }
 
         return AppText.keepsRunningWithLidClosed
+    }
+
+    var serverModeTimeDisplay: String? {
+        timedServerModeRemainingDisplay ?? serverModeRuntimeDisplay
+    }
+
+    static func normalizedTimedServerModeDuration(_ minutes: Int?) -> Int? {
+        guard let minutes,
+              minutes >= minimumTimedServerModeDurationMinutes,
+              minutes <= maximumTimedServerModeDurationMinutes else {
+            return nil
+        }
+
+        return minutes
+    }
+
+    static func sanitizedTimedServerModeDurationOptions(_ durations: [Int]) -> [Int] {
+        let validDurations = durations.compactMap { normalizedTimedServerModeDuration($0) }
+        let uniqueDurations = Array(Set(validDurations)).sorted()
+        return uniqueDurations.isEmpty ? builtInTimedServerModeDurationOptions : uniqueDurations
+    }
+
+    func startTimedServerMode(durationMinutes: Int) async {
+        guard !isCommandRunning else {
+            lastCommandStatus = AppText.commandAlreadyRunning
+            return
+        }
+
+        guard let durationMinutes = Self.normalizedTimedServerModeDuration(durationMinutes) else {
+            lastCommandStatus = AppText.invalidTimedServerModeDuration
+            return
+        }
+
+        setTimedServerModeLimit(durationMinutes: durationMinutes)
+        serverModeRequested = true
+        await reconcileServerMode()
+
+        if !serverModeRequested && !serverModeActive {
+            clearTimedServerModeLimit()
+        }
+    }
+
+    func setTimedServerModeDurationOptions(_ durations: [Int]) {
+        let sanitizedDurations = Self.sanitizedTimedServerModeDurationOptions(durations)
+        timedServerModeDurationOptions = sanitizedDurations
+    }
+
+    func addTimedServerModeDuration(minutes: Int) -> Int? {
+        guard let minutes = Self.normalizedTimedServerModeDuration(minutes) else {
+            lastCommandStatus = AppText.invalidTimedServerModeDuration
+            return nil
+        }
+
+        setTimedServerModeDurationOptions(timedServerModeDurationOptions + [minutes])
+        return minutes
+    }
+
+    func removeTimedServerModeDuration(minutes: Int) {
+        guard timedServerModeDurationOptions.count > 1 else {
+            return
+        }
+
+        let remainingDurations = timedServerModeDurationOptions.filter { $0 != minutes }
+        setTimedServerModeDurationOptions(remainingDurations)
+    }
+
+    func resetTimedServerModeDurations() {
+        timedServerModeDurationOptions = Self.builtInTimedServerModeDurationOptions
+    }
+
+    func clearTimedServerModeTimer() {
+        guard hasTimedServerModeLimit else {
+            return
+        }
+
+        clearTimedServerModeLimit()
+        updateServerModeRuntimeDisplay()
+        notifyMenuShouldRefresh()
+    }
+
+    func toggleTimedServerModePreventDisplaySleep() {
+        guard canToggleTimedServerModePreventDisplaySleep else {
+            return
+        }
+
+        timedServerModePreventDisplaySleep.toggle()
+    }
+
+    func handleDisplayConfigurationDidChange() {
+        updateTimedDisplayAwakeAssertion()
+
+        guard serverModeActive, lidState == .closed, !isCommandRunning else {
+            return
+        }
+
+        Task {
+            await dimClosedLidBuiltInDisplayIfNeeded(force: true)
+        }
+    }
+
+    private func setTimedServerModeLimit(durationMinutes: Int) {
+        let endDate = Date().addingTimeInterval(TimeInterval(durationMinutes * 60))
+        timedServerModeSelectedDurationMinutes = durationMinutes
+        timedServerModeEndDate = endDate
+        updateTimedServerModeRemainingDisplay()
+        startTimedServerModeTimerIfNeeded()
+    }
+
+    private func clearTimedServerModeLimit() {
+        stopTimedServerModeTimer()
+        timedServerModeEndDate = nil
+        timedServerModeSelectedDurationMinutes = nil
+        timedServerModeRemainingDisplay = nil
     }
 
     private func updateServerModeRuntimeTracking() {
@@ -241,6 +461,103 @@ final class AppState: ObservableObject {
 
         let elapsedSeconds = max(0, Int(Date().timeIntervalSince(serverModeStartedAt)))
         serverModeRuntimeDisplay = AppText.serverModeRuntime(totalMinutes: elapsedSeconds / 60)
+    }
+
+    private func startTimedServerModeTimerIfNeeded() {
+        guard timedServerModeEndDate != nil, timedServerModeTimer == nil else {
+            return
+        }
+
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateTimedServerModeRemainingDisplay()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        timedServerModeTimer = timer
+    }
+
+    private func stopTimedServerModeTimer() {
+        timedServerModeTimer?.invalidate()
+        timedServerModeTimer = nil
+    }
+
+    private func updateTimedServerModeRemainingDisplay() {
+        guard let timedServerModeEndDate else {
+            timedServerModeRemainingDisplay = nil
+            stopTimedServerModeTimer()
+            return
+        }
+
+        let remainingSeconds = Int(ceil(timedServerModeEndDate.timeIntervalSinceNow))
+        guard remainingSeconds > 0 else {
+            timedServerModeRemainingDisplay = AppText.timedServerModeRemaining(totalSeconds: 0)
+            handleTimedServerModeExpirationSoon()
+            return
+        }
+
+        timedServerModeRemainingDisplay = AppText.timedServerModeRemaining(totalSeconds: remainingSeconds)
+        startTimedServerModeTimerIfNeeded()
+    }
+
+    private func handleTimedServerModeExpirationSoon() {
+        guard !isHandlingTimedServerModeExpiration else {
+            return
+        }
+
+        isHandlingTimedServerModeExpiration = true
+        Task { @MainActor [weak self] in
+            await self?.handleTimedServerModeExpiration()
+        }
+    }
+
+    private func handleTimedServerModeExpiration() async {
+        defer {
+            isHandlingTimedServerModeExpiration = false
+        }
+
+        guard timedServerModeEndDate != nil else {
+            return
+        }
+
+        guard !isCommandRunning else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleTimedServerModeExpirationSoon()
+                }
+            }
+            return
+        }
+
+        clearTimedServerModeLimit()
+
+        if serverModeActive {
+            await stopServerMode(clearRequest: true, successMessage: AppText.timedServerModeEnded)
+        } else {
+            setTemporaryBatteryServerModeAllowed(false)
+            serverModeRequested = false
+            lastCommandStatus = AppText.timedServerModeEnded
+        }
+    }
+
+    private func stopExpiredTimedServerModeOnStartIfNeeded() async {
+        guard shouldStopExpiredTimedServerModeOnStart else {
+            return
+        }
+
+        clearTimedServerModeLimit()
+
+        guard !isCommandRunning else {
+            return
+        }
+
+        if serverModeActive {
+            await stopServerMode(clearRequest: true, successMessage: AppText.timedServerModeEnded)
+        } else {
+            setTemporaryBatteryServerModeAllowed(false)
+            serverModeRequested = false
+            lastCommandStatus = AppText.timedServerModeEnded
+        }
     }
 
     private var isWaitingForPowerAdapter: Bool {
@@ -302,6 +619,7 @@ final class AppState: ObservableObject {
 
         Task {
             await refreshServerModeStatus()
+            await stopExpiredTimedServerModeOnStartIfNeeded()
         }
     }
 
@@ -526,6 +844,7 @@ final class AppState: ObservableObject {
             return false
         }
 
+        clearTimedServerModeLimit()
         serverModeRequested = false
 
         if serverModeActive {
@@ -575,6 +894,7 @@ final class AppState: ObservableObject {
         if serverModeActive {
             await stopServerMode(clearRequest: true)
         } else {
+            clearTimedServerModeLimit()
             setTemporaryBatteryServerModeAllowed(false)
             serverModeRequested = false
             lastCommandStatus = AppText.serverModeCancelled
@@ -733,6 +1053,7 @@ final class AppState: ObservableObject {
 
         _ = await currentPowerSource()
         await reconcileServerMode()
+        updateTimedDisplayAwakeAssertion()
         await dimClosedLidBuiltInDisplayIfNeeded(force: true)
         await evaluateLowBatteryNotification()
     }
@@ -881,6 +1202,24 @@ final class AppState: ObservableObject {
         }
     }
 
+    private var shouldKeepDisplayAwakeForTimedServerMode: Bool {
+        hasTimedServerModeLimit
+            && timedServerModePreventDisplaySleep
+            && !isClosedWithOnlyBuiltInDisplay
+    }
+
+    private var isClosedWithOnlyBuiltInDisplay: Bool {
+        lidState == .closed && !BuiltInDisplayDimmer.hasOnlineExternalDisplay()
+    }
+
+    private func updateTimedDisplayAwakeAssertion() {
+        let result = powerManager.setTimedDisplayAwakeEnabled(shouldKeepDisplayAwakeForTimedServerMode)
+        if shouldKeepDisplayAwakeForTimedServerMode,
+           case .failure(let message) = result {
+            lastCommandStatus = AppText.failure(message)
+        }
+    }
+
     private func beginCommand(waitingStatus: String) -> Bool {
         guard !isCommandRunning else {
             lastCommandStatus = AppText.commandAlreadyRunning
@@ -903,10 +1242,12 @@ final class AppState: ObservableObject {
             serverModeActive = true
             lastCommandStatus = AppText.success(message)
         case .userCancelled:
+            clearTimedServerModeLimit()
             serverModeRequested = false
             serverModeActive = false
             lastCommandStatus = AppText.userCancelledAuthorization
         case .failure(let message):
+            clearTimedServerModeLimit()
             serverModeRequested = false
             serverModeActive = false
             lastCommandStatus = AppText.failure(message)
@@ -922,6 +1263,9 @@ final class AppState: ObservableObject {
         switch result {
         case .success(let message):
             serverModeActive = false
+            if clearRequest {
+                clearTimedServerModeLimit()
+            }
             setTemporaryBatteryServerModeAllowed(false)
             didHandleBuiltInDisplayForClosedLid = false
             restoreBuiltInDisplayBrightnessIfNeeded()
