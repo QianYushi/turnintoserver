@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreText
 
 @main
 enum TurnIntoServerMain {
@@ -1676,23 +1677,140 @@ private enum MenuBarStatusIconRenderer {
         circle.lineWidth = 1
         circle.stroke()
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.white
-        ]
-        let attributedText = NSAttributedString(string: text, attributes: attributes)
-        let textSize = attributedText.size()
-        let textRect = NSRect(
-            x: bounds.midX - textSize.width / 2,
-            y: bounds.midY - textSize.height / 2 - 0.5,
-            width: textSize.width,
-            height: textSize.height
-        )
-        attributedText.draw(in: textRect)
+        drawStatusLetter(text, in: bounds)
 
         image.cacheMode = .never
         image.isTemplate = false
         return image
+    }
+
+    private static func drawStatusLetter(_ text: String, in bounds: NSRect) {
+        let targetRect = NSRect(
+            x: bounds.midX - 2.9,
+            y: bounds.midY - 3.4,
+            width: 5.8,
+            height: 6.8
+        )
+
+        guard let scalar = text.unicodeScalars.first,
+              scalar.value <= UInt16.max,
+              let context = NSGraphicsContext.current?.cgContext else {
+            drawFallbackStatusLetter(text, in: targetRect)
+            return
+        }
+
+        let font = NSFont(name: "PingFangSC-Semibold", size: 10.8)
+            ?? NSFont.systemFont(ofSize: 10.8, weight: .semibold)
+        let ctFont = CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil)
+        var character = UniChar(scalar.value)
+        var glyph = CGGlyph()
+
+        guard CTFontGetGlyphsForCharacters(ctFont, &character, &glyph, 1),
+              let glyphPath = CTFontCreatePathForGlyph(ctFont, glyph, nil) else {
+            drawFallbackStatusLetter(text, in: targetRect)
+            return
+        }
+
+        let glyphBounds = glyphPath.boundingBoxOfPath
+        guard glyphBounds.width > 0, glyphBounds.height > 0 else {
+            drawFallbackStatusLetter(text, in: targetRect)
+            return
+        }
+
+        let scale = min(targetRect.width / glyphBounds.width, targetRect.height / glyphBounds.height)
+
+        context.saveGState()
+        context.setShouldAntialias(true)
+        context.setFillColor(NSColor.white.cgColor)
+        context.setStrokeColor(NSColor.white.cgColor)
+        context.setLineJoin(.round)
+        context.setLineWidth(0.22)
+        context.translateBy(x: targetRect.midX, y: targetRect.midY - 0.05)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -glyphBounds.midX, y: -glyphBounds.midY)
+        context.addPath(glyphPath)
+        context.drawPath(using: .fillStroke)
+        context.restoreGState()
+    }
+
+    private static func drawFallbackStatusLetter(_ text: String, in rect: NSRect) {
+        let path: NSBezierPath
+        switch text {
+        case "B":
+            path = statusLetterBPath(in: rect)
+        default:
+            path = statusLetterSPath(in: rect)
+        }
+
+        NSColor.white.setStroke()
+        path.lineWidth = 1.7
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.stroke()
+    }
+
+    private static func statusLetterSPath(in rect: NSRect) -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: statusLetterPoint(x: 0.82, y: 0.88, in: rect))
+        path.curve(
+            to: statusLetterPoint(x: 0.20, y: 0.70, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.66, y: 0.98, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.30, y: 0.98, in: rect)
+        )
+        path.curve(
+            to: statusLetterPoint(x: 0.48, y: 0.52, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.08, y: 0.55, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.24, y: 0.50, in: rect)
+        )
+        path.curve(
+            to: statusLetterPoint(x: 0.80, y: 0.32, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.74, y: 0.54, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.92, y: 0.48, in: rect)
+        )
+        path.curve(
+            to: statusLetterPoint(x: 0.18, y: 0.12, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.66, y: 0.02, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.34, y: 0.02, in: rect)
+        )
+        return path
+    }
+
+    private static func statusLetterBPath(in rect: NSRect) -> NSBezierPath {
+        let path = NSBezierPath()
+        path.move(to: statusLetterPoint(x: 0.22, y: 0.12, in: rect))
+        path.line(to: statusLetterPoint(x: 0.22, y: 0.88, in: rect))
+
+        path.move(to: statusLetterPoint(x: 0.22, y: 0.88, in: rect))
+        path.curve(
+            to: statusLetterPoint(x: 0.70, y: 0.70, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.58, y: 0.90, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.82, y: 0.86, in: rect)
+        )
+        path.curve(
+            to: statusLetterPoint(x: 0.22, y: 0.52, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.82, y: 0.54, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.58, y: 0.52, in: rect)
+        )
+
+        path.move(to: statusLetterPoint(x: 0.22, y: 0.52, in: rect))
+        path.curve(
+            to: statusLetterPoint(x: 0.76, y: 0.32, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.62, y: 0.54, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.88, y: 0.48, in: rect)
+        )
+        path.curve(
+            to: statusLetterPoint(x: 0.22, y: 0.12, in: rect),
+            controlPoint1: statusLetterPoint(x: 0.88, y: 0.14, in: rect),
+            controlPoint2: statusLetterPoint(x: 0.62, y: 0.10, in: rect)
+        )
+        return path
+    }
+
+    private static func statusLetterPoint(x: CGFloat, y: CGFloat, in rect: NSRect) -> NSPoint {
+        NSPoint(
+            x: rect.minX + rect.width * x,
+            y: rect.minY + rect.height * y
+        )
     }
 
     private static func menuStatusLight(color: NSColor) -> NSImage {

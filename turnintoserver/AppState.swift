@@ -11,6 +11,7 @@ final class AppState: ObservableObject {
         static let lastKnownPowerSource = "lastKnownPowerSource"
         static let serverModeRequested = "serverModeRequested"
         static let serverModeStartedAt = "serverModeStartedAt"
+        static let serverModeRuntimeHeartbeatAt = "serverModeRuntimeHeartbeatAt"
         static let timedServerModeEndDate = "timedServerModeEndDate"
         static let timedServerModeSelectedDurationMinutes = "timedServerModeSelectedDurationMinutes"
     }
@@ -19,6 +20,7 @@ final class AppState: ObservableObject {
 
     private static let minimumTimedServerModeDurationMinutes = 1
     private static let maximumTimedServerModeDurationMinutes = 7 * 24 * 60
+    private static let maximumSavedRuntimeHeartbeatAge: TimeInterval = 5 * 60
 
     @Published private(set) var powerSource: PowerSource {
         didSet {
@@ -215,7 +217,18 @@ final class AppState: ObservableObject {
         let savedSource = defaults.string(forKey: DefaultsKey.lastKnownPowerSource)
         powerSource = savedSource.flatMap(PowerSource.init(rawValue:)) ?? .unknown
         lastCommandStatus = AppText.notStarted
-        serverModeStartedAt = defaults.object(forKey: DefaultsKey.serverModeStartedAt) as? Date
+        let savedServerModeStartedAt = defaults.object(forKey: DefaultsKey.serverModeStartedAt) as? Date
+        let savedRuntimeHeartbeatAt = defaults.object(forKey: DefaultsKey.serverModeRuntimeHeartbeatAt) as? Date
+        if Self.shouldKeepSavedServerModeRuntime(
+            startedAt: savedServerModeStartedAt,
+            heartbeatAt: savedRuntimeHeartbeatAt
+        ) {
+            serverModeStartedAt = savedServerModeStartedAt
+        } else {
+            serverModeStartedAt = nil
+            defaults.removeObject(forKey: DefaultsKey.serverModeStartedAt)
+            defaults.removeObject(forKey: DefaultsKey.serverModeRuntimeHeartbeatAt)
+        }
 
         if savedLowBatteryNotificationsEnabled && !canEnableSavedLowBatteryNotifications {
             defaults.set(false, forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
@@ -423,6 +436,7 @@ final class AppState: ObservableObject {
         }
 
         startServerModeRuntimeTimer()
+        recordServerModeRuntimeHeartbeat()
         updateServerModeRuntimeDisplay()
     }
 
@@ -433,6 +447,7 @@ final class AppState: ObservableObject {
 
         runtimeTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.recordServerModeRuntimeHeartbeat()
                 self?.updateServerModeRuntimeDisplay()
             }
         }
@@ -451,6 +466,11 @@ final class AppState: ObservableObject {
     private func clearServerModeStartedAt() {
         serverModeStartedAt = nil
         defaults.removeObject(forKey: DefaultsKey.serverModeStartedAt)
+        defaults.removeObject(forKey: DefaultsKey.serverModeRuntimeHeartbeatAt)
+    }
+
+    private func recordServerModeRuntimeHeartbeat() {
+        defaults.set(Date(), forKey: DefaultsKey.serverModeRuntimeHeartbeatAt)
     }
 
     private func updateServerModeRuntimeDisplay() {
@@ -461,6 +481,23 @@ final class AppState: ObservableObject {
 
         let elapsedSeconds = max(0, Int(Date().timeIntervalSince(serverModeStartedAt)))
         serverModeRuntimeDisplay = AppText.serverModeRuntime(totalMinutes: elapsedSeconds / 60)
+    }
+
+    private static func shouldKeepSavedServerModeRuntime(startedAt: Date?, heartbeatAt: Date?) -> Bool {
+        guard let startedAt else {
+            return false
+        }
+
+        guard let heartbeatAt else {
+            return false
+        }
+
+        let now = Date()
+        guard startedAt <= now.addingTimeInterval(60) else {
+            return false
+        }
+
+        return now.timeIntervalSince(heartbeatAt) <= maximumSavedRuntimeHeartbeatAge
     }
 
     private func startTimedServerModeTimerIfNeeded() {
