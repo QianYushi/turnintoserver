@@ -1136,7 +1136,8 @@ private final class PreferencesUpdateViewModel: ObservableObject {
         }
 
         do {
-            try Self.launchInstaller(dmgURL: preparedDMGURL, targetAppURL: Bundle.main.bundleURL)
+            let targetAppURL = Self.preferredInstallTarget(for: Bundle.main.bundleURL)
+            try Self.launchInstaller(dmgURL: preparedDMGURL, targetAppURL: targetAppURL)
             NSApplication.shared.terminate(nil)
         } catch {
             statusText = AppText.updateInstallFailed(error.localizedDescription)
@@ -1203,12 +1204,24 @@ private final class PreferencesUpdateViewModel: ObservableObject {
         return directory.appendingPathComponent("turnintoserver-\(tagName).dmg")
     }
 
+    private static func preferredInstallTarget(for currentAppURL: URL) -> URL {
+        let standardizedURL = currentAppURL.standardizedFileURL
+        let path = standardizedURL.path
+
+        if path.hasPrefix("/Volumes/") || path.contains("/AppTranslocation/") {
+            return URL(fileURLWithPath: "/Applications", isDirectory: true)
+                .appendingPathComponent(currentAppURL.lastPathComponent, isDirectory: true)
+        }
+
+        return standardizedURL
+    }
+
     private static func launchInstaller(dmgURL: URL, targetAppURL: URL) throws {
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("turnintoserver-install-\(UUID().uuidString).sh")
         let script = """
         #!/bin/bash
-        set -euo pipefail
+        set -uo pipefail
 
         APP_PID="$1"
         DMG="$2"
@@ -1217,6 +1230,15 @@ private final class PreferencesUpdateViewModel: ObservableObject {
         MOUNT_DIR="$(/usr/bin/mktemp -d /tmp/turnintoserver-update.XXXXXX)"
         TMP_TARGET="$TARGET_APP.updating"
         BACKUP="$TARGET_APP.previous"
+        LOG_DIR="$HOME/Library/Logs"
+        LOG_FILE="$LOG_DIR/turnintoserver-update.log"
+
+        /bin/mkdir -p "$LOG_DIR" >/dev/null 2>&1 || true
+        exec >> "$LOG_FILE" 2>&1
+
+        log() {
+          /bin/echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] $*"
+        }
 
         cleanup() {
           /usr/bin/hdiutil detach "$MOUNT_DIR" -quiet >/dev/null 2>&1 || true
@@ -1224,42 +1246,113 @@ private final class PreferencesUpdateViewModel: ObservableObject {
         }
         trap cleanup EXIT
 
+        reopen_existing_app() {
+          if [[ -d "$TARGET_APP" ]]; then
+            /usr/bin/open -n "$TARGET_APP" >/dev/null 2>&1 || true
+          elif [[ -d "$BACKUP" ]]; then
+            /usr/bin/open -n "$BACKUP" >/dev/null 2>&1 || true
+          fi
+        }
+
+        register_app() {
+          local lsregister="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+          if [[ -x "$lsregister" ]]; then
+            "$lsregister" -f -R -trusted "$TARGET_APP" >/dev/null 2>&1 || true
+          fi
+        }
+
+        install_without_privileges() {
+          /bin/rm -rf "$TMP_TARGET" "$BACKUP" || return 1
+          /usr/bin/ditto --norsrc --noextattr "$SOURCE_APP" "$TMP_TARGET" || return 1
+          /usr/bin/xattr -cr "$TMP_TARGET" >/dev/null 2>&1 || true
+
+          if [[ -d "$TARGET_APP" ]]; then
+            /bin/mv "$TARGET_APP" "$BACKUP" || return 1
+          fi
+
+          if /bin/mv "$TMP_TARGET" "$TARGET_APP"; then
+            return 0
+          fi
+
+          /bin/rm -rf "$TARGET_APP" >/dev/null 2>&1 || true
+          if [[ -d "$BACKUP" ]]; then
+            /bin/mv "$BACKUP" "$TARGET_APP" || return 1
+          fi
+          return 1
+        }
+
+        install_with_privileges() {
+          /usr/bin/osascript - "$SOURCE_APP" "$TARGET_APP" "$TMP_TARGET" "$BACKUP" <<'APPLESCRIPT'
+        on run argv
+          set sourceApp to item 1 of argv
+          set targetApp to item 2 of argv
+          set tmpTarget to item 3 of argv
+          set backupApp to item 4 of argv
+
+          set qSource to quoted form of sourceApp
+          set qTarget to quoted form of targetApp
+          set qTmp to quoted form of tmpTarget
+          set qBackup to quoted form of backupApp
+
+          set command to "set -e; /bin/rm -rf " & qTmp & " " & qBackup & "; /usr/bin/ditto --norsrc --noextattr " & qSource & " " & qTmp & "; /usr/bin/xattr -cr " & qTmp & " >/dev/null 2>&1 || true; if [ -d " & qTarget & " ]; then /bin/mv " & qTarget & " " & qBackup & "; fi; if /bin/mv " & qTmp & " " & qTarget & "; then /bin/rm -rf " & qBackup & "; else /bin/rm -rf " & qTarget & "; if [ -d " & qBackup & " ]; then /bin/mv " & qBackup & " " & qTarget & "; fi; exit 1; fi"
+          do shell script command with administrator privileges
+        end run
+        APPLESCRIPT
+        }
+
+        log "Starting update. target=$TARGET_APP dmg=$DMG"
+
         while /bin/kill -0 "$APP_PID" >/dev/null 2>&1; do
           /bin/sleep 0.2
         done
 
-        /usr/bin/hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
+        if ! /usr/bin/hdiutil attach "$DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet; then
+          log "Failed to mount DMG."
+          reopen_existing_app
+          exit 1
+        fi
+
         SOURCE_APP="$MOUNT_DIR/$APP_NAME"
         if [[ ! -d "$SOURCE_APP" ]]; then
           SOURCE_APP="$(/usr/bin/find "$MOUNT_DIR" -maxdepth 1 -name "*.app" -type d | /usr/bin/head -n 1)"
         fi
         if [[ ! -d "$SOURCE_APP" ]]; then
+          log "No app bundle found in mounted DMG."
+          reopen_existing_app
           exit 1
         fi
 
-        /bin/rm -rf "$TMP_TARGET" "$BACKUP"
-        /usr/bin/ditto --norsrc --noextattr "$SOURCE_APP" "$TMP_TARGET"
-        /usr/bin/xattr -cr "$TMP_TARGET" >/dev/null 2>&1 || true
+        SOURCE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print:CFBundleShortVersionString' "$SOURCE_APP/Contents/Info.plist" 2>/dev/null || true)"
+        log "Found source app: $SOURCE_APP version=$SOURCE_VERSION"
 
-        if [[ -d "$TARGET_APP" ]]; then
-          /bin/mv "$TARGET_APP" "$BACKUP"
+        if install_without_privileges; then
+          log "Installed without elevated privileges."
+        else
+          log "Direct install failed; trying administrator privileges."
+          if ! install_with_privileges; then
+            log "Administrator install failed."
+            reopen_existing_app
+            exit 1
+          fi
+          log "Installed with administrator privileges."
         fi
 
-        if /bin/mv "$TMP_TARGET" "$TARGET_APP"; then
-          /usr/bin/open -n "$TARGET_APP"
-          /bin/rm -rf "$BACKUP"
-          /bin/rm -f "$DMG"
-          /bin/rmdir "$(/usr/bin/dirname "$DMG")" >/dev/null 2>&1 || true
-          /bin/rm -f "$0"
-          exit 0
+        TARGET_VERSION="$(/usr/libexec/PlistBuddy -c 'Print:CFBundleShortVersionString' "$TARGET_APP/Contents/Info.plist" 2>/dev/null || true)"
+        log "Installed target version=$TARGET_VERSION"
+
+        register_app
+        if /usr/bin/open -n "$TARGET_APP"; then
+          log "Relaunched installed app."
+        else
+          log "Failed to relaunch installed app."
+          exit 1
         fi
 
-        /bin/rm -rf "$TARGET_APP"
-        if [[ -d "$BACKUP" ]]; then
-          /bin/mv "$BACKUP" "$TARGET_APP"
-          /usr/bin/open -n "$TARGET_APP" >/dev/null 2>&1 || true
-        fi
-        exit 1
+        /bin/rm -rf "$BACKUP"
+        /bin/rm -f "$DMG"
+        /bin/rmdir "$(/usr/bin/dirname "$DMG")" >/dev/null 2>&1 || true
+        /bin/rm -f "$0"
+        exit 0
         """
 
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)

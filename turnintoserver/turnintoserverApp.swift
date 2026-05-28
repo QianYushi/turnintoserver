@@ -244,6 +244,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private var timedDurationRowViews: [Int: MenuStateActionRowView] = [:]
     private weak var timedPreventDisplaySleepRowView: MenuStateActionRowView?
     private var timedSubmenuDurationOptions: [Int] = []
+    private weak var memorySectionHeaderRowView: MenuMemorySectionHeaderRowView?
+    private var topMemoryAppRowViews: [MenuMemoryAppRowView] = []
+    private let memoryTrendPanelController = MemoryTrendPanelController()
+    private var memorySectionExpanded = false
+    private var lastServerModeMemoryDefaultExpanded = false
     private weak var batteryRowView: MenuToggleRowView?
     private weak var lowBatteryRowView: MenuToggleRowView?
     private weak var shortcutsRowView: MenuToggleRowView?
@@ -254,6 +259,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         self.appState = appState
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        memorySectionExpanded = appState.shouldShowMemoryUsageRows
+        lastServerModeMemoryDefaultExpanded = appState.shouldShowMemoryUsageRows
         configureStatusItem()
         observeAppState()
         updateStatusButton()
@@ -333,6 +340,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             appState.$timedServerModeRemainingDisplay.map { _ in () }.eraseToAnyPublisher(),
             appState.$timedServerModeDurationOptions.map { _ in () }.eraseToAnyPublisher(),
             appState.$timedServerModePreventDisplaySleep.map { _ in () }.eraseToAnyPublisher(),
+            appState.$topMemoryApps.map { _ in () }.eraseToAnyPublisher(),
             appState.$powerSource.map { _ in () }.eraseToAnyPublisher()
         ]
 
@@ -384,11 +392,13 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         installMenuShortcutEventMonitor()
         NotificationCenter.default.post(name: .turnIntoServerMenuHotKeyCaptureDidStart, object: nil)
         appState.refreshLaunchAtLoginStatus()
+        resetMemorySectionExpansionForMenuOpen()
         rebuildMenu()
     }
 
     func menuDidClose(_ menu: NSMenu) {
         isMenuOpen = false
+        memoryTrendPanelController.hide()
         removeMenuShortcutEventMonitor()
         NotificationCenter.default.post(name: .turnIntoServerMenuHotKeyCaptureDidEnd, object: nil)
     }
@@ -498,6 +508,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func rebuildMenu() {
+        memoryTrendPanelController.hide()
         menu.removeAllItems()
         serverModeRowView = nil
         statusSummaryRowView = nil
@@ -507,6 +518,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         timedDurationRowViews = [:]
         timedPreventDisplaySleepRowView = nil
         timedSubmenuDurationOptions = []
+        memorySectionHeaderRowView = nil
+        topMemoryAppRowViews = []
         batteryRowView = nil
         lowBatteryRowView = nil
         shortcutsRowView = nil
@@ -547,6 +560,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(runtimeItem)
         }
 
+        menu.addItem(.separator())
+
         let timedServerModeItem = NSMenuItem()
         let timedServerModeView = MenuSubmenuRowView(
             title: AppText.timedServerMode,
@@ -559,6 +574,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         configureTimedServerModeMenuItem(timedServerModeItem)
         menu.addItem(timedServerModeItem)
 
+        menu.addItem(.separator())
+
+        addTopMemoryAppsSection()
         menu.addItem(.separator())
 
         let batteryItem = NSMenuItem()
@@ -627,6 +645,96 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         quitItem.isEnabled = !appState.isCommandRunning
         quitMenuItem = quitItem
         menu.addItem(quitItem)
+    }
+
+    private func addTopMemoryAppsSection() {
+        let isExpanded = memorySectionExpanded
+
+        let headerItem = NSMenuItem()
+        let headerView = MenuMemorySectionHeaderRowView(
+            title: AppText.memoryUsageSectionTitle,
+            memoryDetail: appState.systemPressureMemoryDisplay,
+            cpuDetail: appState.systemPressureCPUDisplay,
+            isExpanded: isExpanded,
+            target: self,
+            action: #selector(toggleMemorySectionExpansion(_:)),
+            onHoverBegan: { [weak self] anchorView in
+                self?.showSystemPressureTrend(relativeTo: anchorView)
+            },
+            onHoverEnded: { [weak self] in
+                self?.hideSystemPressureTrendIfNeeded()
+            }
+        )
+        headerItem.view = headerView
+        memorySectionHeaderRowView = headerView
+        menu.addItem(headerItem)
+
+        guard isExpanded else {
+            return
+        }
+
+        let apps = appState.topMemoryApps
+        guard !apps.isEmpty else {
+            return
+        }
+
+        for app in apps {
+            let appItem = NSMenuItem()
+            let appView = MenuMemoryAppRowView(
+                app: app,
+                onHoverBegan: { [weak self] app, anchorView in
+                    self?.showMemoryTrend(for: app, relativeTo: anchorView)
+                },
+                onHoverEnded: { [weak self] app in
+                    self?.hideMemoryTrendIfNeeded(for: app)
+                }
+            )
+            appItem.view = appView
+            topMemoryAppRowViews.append(appView)
+            menu.addItem(appItem)
+        }
+    }
+
+    @objc private func toggleMemorySectionExpansion(_ sender: Any?) {
+        memorySectionExpanded.toggle()
+        if !memorySectionExpanded {
+            memoryTrendPanelController.hide()
+        }
+        refreshMenuAfterStateChange()
+    }
+
+    private func showSystemPressureTrend(relativeTo anchorView: NSView) {
+        guard let history = appState.systemPressureHistory() else {
+            memoryTrendPanelController.hide()
+            return
+        }
+
+        memoryTrendPanelController.show(systemHistory: history, relativeTo: anchorView)
+    }
+
+    private func hideSystemPressureTrendIfNeeded() {
+        guard memoryTrendPanelController.visibleAppID == SystemPressureHistory.id else {
+            return
+        }
+
+        memoryTrendPanelController.hide()
+    }
+
+    private func showMemoryTrend(for app: MemoryUsageApp, relativeTo anchorView: NSView) {
+        guard let history = appState.memoryUsageHistory(for: app) else {
+            memoryTrendPanelController.hide()
+            return
+        }
+
+        memoryTrendPanelController.show(history: history, relativeTo: anchorView)
+    }
+
+    private func hideMemoryTrendIfNeeded(for app: MemoryUsageApp) {
+        guard memoryTrendPanelController.visibleAppID == app.id else {
+            return
+        }
+
+        memoryTrendPanelController.hide()
     }
 
     private func addHiddenShortcutMenuItems() {
@@ -778,9 +886,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func refreshMenuIfOpen() {
         guard isMenuOpen else {
+            syncMemorySectionExpansionWithServerMode()
             return
         }
 
+        syncMemorySectionExpansionWithServerMode()
         updateVisibleMenuRowsOrRebuild()
     }
 
@@ -792,8 +902,13 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private func updateVisibleMenuRowsOrRebuild() {
         let runtimeShouldBeVisible = appState.serverModeTimeDisplay != nil
         let runtimeIsVisible = runtimeRowView != nil
+        let memoryHeaderShouldBeVisible = true
+        let memoryHeaderIsVisible = memorySectionHeaderRowView != nil
+        let visibleMemoryApps = memorySectionExpanded ? appState.topMemoryApps : []
 
         guard runtimeShouldBeVisible == runtimeIsVisible,
+              memoryHeaderShouldBeVisible == memoryHeaderIsVisible,
+              topMemoryAppRowViews.count == visibleMemoryApps.count,
               let serverModeRowView,
               let statusSummaryRowView,
               let timedServerModeMenuItem,
@@ -817,6 +932,16 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         )
         statusSummaryRowView.update(title: appState.statusSummaryDisplay)
         runtimeRowView?.update(title: appState.serverModeTimeDisplay ?? "")
+        memorySectionHeaderRowView?.update(
+            title: AppText.memoryUsageSectionTitle,
+            memoryDetail: appState.systemPressureMemoryDisplay,
+            cpuDetail: appState.systemPressureCPUDisplay,
+            isExpanded: memorySectionExpanded
+        )
+        zip(topMemoryAppRowViews, visibleMemoryApps).forEach { rowView, app in
+            rowView.update(app: app)
+        }
+        refreshMemoryTrendPanelIfNeeded(visibleMemoryApps: visibleMemoryApps)
         configureTimedServerModeMenuItem(timedServerModeMenuItem)
         batteryRowView.update(
             title: AppText.allowBatteryServerMode,
@@ -847,6 +972,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             serverModeRowView,
             statusSummaryRowView,
             runtimeRowView,
+            memorySectionHeaderRowView,
             timedServerModeRowView,
             batteryRowView,
             lowBatteryRowView,
@@ -859,12 +985,55 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         ]
         .compactMap { $0 } + Array(timedDurationRowViews.values)
 
-        (visibleRowViews.compactMap { $0 } + visibleTimedSubmenuRowViews).forEach { view in
+        (visibleRowViews.compactMap { $0 } + topMemoryAppRowViews + visibleTimedSubmenuRowViews).forEach { view in
             view.layoutSubtreeIfNeeded()
             view.displayIfNeeded()
             view.window?.displayIfNeeded()
         }
         menu.update()
+    }
+
+    private func refreshMemoryTrendPanelIfNeeded(visibleMemoryApps: [MemoryUsageApp]) {
+        guard let visibleAppID = memoryTrendPanelController.visibleAppID else {
+            return
+        }
+
+        if visibleAppID == SystemPressureHistory.id {
+            guard let history = appState.systemPressureHistory() else {
+                memoryTrendPanelController.hide()
+                return
+            }
+
+            memoryTrendPanelController.update(systemHistory: history)
+            return
+        }
+
+        guard let visibleApp = visibleMemoryApps.first(where: { $0.id == visibleAppID }),
+              let history = appState.memoryUsageHistory(for: visibleApp) else {
+            memoryTrendPanelController.hide()
+            return
+        }
+
+        memoryTrendPanelController.update(history: history)
+    }
+
+    private func resetMemorySectionExpansionForMenuOpen() {
+        memorySectionExpanded = appState.shouldShowMemoryUsageRows
+        lastServerModeMemoryDefaultExpanded = appState.shouldShowMemoryUsageRows
+    }
+
+    private func syncMemorySectionExpansionWithServerMode() {
+        let shouldDefaultExpand = appState.shouldShowMemoryUsageRows
+        if shouldDefaultExpand != lastServerModeMemoryDefaultExpanded {
+            memorySectionExpanded = shouldDefaultExpand
+            if !memorySectionExpanded {
+                memoryTrendPanelController.hide()
+            }
+            lastServerModeMemoryDefaultExpanded = shouldDefaultExpand
+        } else if !memorySectionExpanded,
+                  memoryTrendPanelController.visibleAppID != SystemPressureHistory.id {
+            memoryTrendPanelController.hide()
+        }
     }
 
     private func refreshMenuSoon() {
@@ -1050,15 +1219,20 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 }
 
 private enum MenuRowMetric {
-    static let width: CGFloat = 250
+    static let width: CGFloat = 286
     static let submenuWidth: CGFloat = 190
     static let height: CGFloat = 30
+    static let memoryRowHeight: CGFloat = 32
     static let textHeight: CGFloat = 26
     static let indicatorLeading: CGFloat = 8
     static let indicatorWidth: CGFloat = 18
     static let titleLeading: CGFloat = 34
     static let trailing: CGFloat = 10
     static let shortcutTrailing: CGFloat = 12
+    static let memoryValueWidth: CGFloat = 68
+    static let cpuSeparatorWidth: CGFloat = 10
+    static let cpuTitleWidth: CGFloat = 24
+    static let cpuValueWidth: CGFloat = 42
 }
 
 private enum MenuItemState {
@@ -1360,6 +1534,817 @@ private final class MenuActionRowView: HighlightedMenuRowView {
         imageView.contentTintColor = color
         shortcutLabel.textColor = isHighlighted ? color : .tertiaryLabelColor
         imageView.alphaValue = isRowEnabled ? 1 : 0.45
+    }
+}
+
+private final class MenuDisclosureChevronView: NSView {
+    var isExpanded: Bool {
+        didSet {
+            needsDisplay = true
+        }
+    }
+    var strokeColor: NSColor {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    init(isExpanded: Bool, strokeColor: NSColor = .tertiaryLabelColor) {
+        self.isExpanded = isExpanded
+        self.strokeColor = strokeColor
+        super.init(frame: NSRect(x: 0, y: 0, width: 18, height: 18))
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let center = NSPoint(x: bounds.midX, y: bounds.midY)
+        let path = NSBezierPath()
+        path.lineWidth = 1.55
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+
+        if isExpanded {
+            path.move(to: NSPoint(x: center.x - 3.5, y: center.y - 1.8))
+            path.line(to: NSPoint(x: center.x, y: center.y + 2.0))
+            path.line(to: NSPoint(x: center.x + 3.5, y: center.y - 1.8))
+        } else {
+            path.move(to: NSPoint(x: center.x - 1.7, y: center.y - 3.6))
+            path.line(to: NSPoint(x: center.x + 2.2, y: center.y))
+            path.line(to: NSPoint(x: center.x - 1.7, y: center.y + 3.6))
+        }
+
+        strokeColor.setStroke()
+        path.stroke()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+}
+
+private final class MenuMemorySectionHeaderRowView: HighlightedMenuRowView {
+    private let disclosureView: MenuDisclosureChevronView
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let memoryLabel = NSTextField(labelWithString: "")
+    private let separatorLabel = NSTextField(labelWithString: "·")
+    private let cpuTitleLabel = NSTextField(labelWithString: "CPU")
+    private let cpuValueLabel = NSTextField(labelWithString: "")
+    private let actionButton = MenuRowButton()
+    private let onHoverBegan: (NSView) -> Void
+    private let onHoverEnded: () -> Void
+    private var isExpanded: Bool
+
+    init(
+        title: String,
+        memoryDetail: String,
+        cpuDetail: String,
+        isExpanded: Bool,
+        target: AnyObject,
+        action: Selector,
+        onHoverBegan: @escaping (NSView) -> Void,
+        onHoverEnded: @escaping () -> Void
+    ) {
+        self.onHoverBegan = onHoverBegan
+        self.onHoverEnded = onHoverEnded
+        self.isExpanded = isExpanded
+        self.disclosureView = MenuDisclosureChevronView(isExpanded: isExpanded)
+
+        super.init(width: MenuRowMetric.width, height: MenuRowMetric.height, isRowEnabled: true)
+
+        titleLabel.stringValue = title
+        titleLabel.font = NSFont.menuFont(ofSize: 0)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        memoryLabel.stringValue = memoryDetail
+        memoryLabel.font = Self.memoryFont(isExpanded: isExpanded)
+        memoryLabel.textColor = Self.memoryTextColor(isExpanded: isExpanded, isHighlighted: false)
+        memoryLabel.alignment = .right
+        memoryLabel.lineBreakMode = .byTruncatingTail
+        memoryLabel.setContentHuggingPriority(.required, for: .horizontal)
+        memoryLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        memoryLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        [separatorLabel, cpuTitleLabel, cpuValueLabel].forEach { label in
+            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            label.textColor = .tertiaryLabelColor
+            label.lineBreakMode = .byTruncatingTail
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+            label.translatesAutoresizingMaskIntoConstraints = false
+        }
+        separatorLabel.alignment = .center
+        cpuTitleLabel.alignment = .right
+        cpuValueLabel.stringValue = cpuDetail
+        cpuValueLabel.alignment = .right
+
+        actionButton.isBordered = false
+        actionButton.isTransparent = true
+        actionButton.focusRingType = .none
+        actionButton.title = ""
+        actionButton.target = target
+        actionButton.action = action
+        actionButton.rowView = self
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(disclosureView)
+        addSubview(titleLabel)
+        addSubview(memoryLabel)
+        addSubview(separatorLabel)
+        addSubview(cpuTitleLabel)
+        addSubview(cpuValueLabel)
+        addSubview(actionButton)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: MenuRowMetric.height),
+            widthAnchor.constraint(equalToConstant: MenuRowMetric.width),
+
+            disclosureView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.indicatorLeading),
+            disclosureView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            disclosureView.widthAnchor.constraint(equalToConstant: MenuRowMetric.indicatorWidth),
+            disclosureView.heightAnchor.constraint(equalToConstant: MenuRowMetric.indicatorWidth),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.titleLeading),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: memoryLabel.leadingAnchor, constant: -10),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            memoryLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.memoryValueWidth),
+            memoryLabel.trailingAnchor.constraint(equalTo: separatorLabel.leadingAnchor, constant: -6),
+            memoryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            separatorLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.cpuSeparatorWidth),
+            separatorLabel.trailingAnchor.constraint(equalTo: cpuTitleLabel.leadingAnchor, constant: -4),
+            separatorLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            cpuTitleLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.cpuTitleWidth),
+            cpuTitleLabel.trailingAnchor.constraint(equalTo: cpuValueLabel.leadingAnchor, constant: -4),
+            cpuTitleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            cpuValueLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.cpuValueWidth),
+            cpuValueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuRowMetric.shortcutTrailing),
+            cpuValueLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            actionButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            actionButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            actionButton.topAnchor.constraint(equalTo: topAnchor),
+            actionButton.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        updateHighlightAppearance()
+    }
+
+    func update(title: String, memoryDetail: String, cpuDetail: String, isExpanded: Bool) {
+        titleLabel.stringValue = title
+        memoryLabel.stringValue = memoryDetail
+        cpuValueLabel.stringValue = cpuDetail
+        self.isExpanded = isExpanded
+        memoryLabel.font = Self.memoryFont(isExpanded: isExpanded)
+        disclosureView.isExpanded = isExpanded
+        updateHighlightAppearance()
+        needsLayout = true
+        needsDisplay = true
+    }
+
+    override fileprivate func applyHighlightAppearance(isHighlighted: Bool) {
+        let color = contentTextColor(isHighlighted: isHighlighted)
+        disclosureView.strokeColor = isHighlighted ? color : .tertiaryLabelColor
+        titleLabel.textColor = color
+        memoryLabel.textColor = Self.memoryTextColor(isExpanded: isExpanded, isHighlighted: isHighlighted)
+        let secondaryColor = isHighlighted ? color : NSColor.tertiaryLabelColor
+        separatorLabel.textColor = secondaryColor
+        cpuTitleLabel.textColor = secondaryColor
+        cpuValueLabel.textColor = secondaryColor
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHoverBegan(self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHoverEnded()
+    }
+
+    private static func memoryFont(isExpanded: Bool) -> NSFont {
+        .monospacedSystemFont(ofSize: 11, weight: isExpanded ? .semibold : .regular)
+    }
+
+    private static func memoryTextColor(isExpanded: Bool, isHighlighted: Bool) -> NSColor {
+        if isHighlighted {
+            return .selectedMenuItemTextColor
+        }
+
+        return isExpanded ? .labelColor : .tertiaryLabelColor
+    }
+}
+
+private final class MenuMemoryAppRowView: NSView {
+    private let imageView = NSImageView()
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let memoryLabel = NSTextField(labelWithString: "")
+    private let separatorLabel = NSTextField(labelWithString: "·")
+    private let cpuTitleLabel = NSTextField(labelWithString: "CPU")
+    private let cpuValueLabel = NSTextField(labelWithString: "")
+    private let onHoverBegan: (MemoryUsageApp, NSView) -> Void
+    private let onHoverEnded: (MemoryUsageApp) -> Void
+    private var currentApp: MemoryUsageApp
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovering = false
+
+    init(
+        app: MemoryUsageApp,
+        onHoverBegan: @escaping (MemoryUsageApp, NSView) -> Void,
+        onHoverEnded: @escaping (MemoryUsageApp) -> Void
+    ) {
+        currentApp = app
+        self.onHoverBegan = onHoverBegan
+        self.onHoverEnded = onHoverEnded
+
+        super.init(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: MenuRowMetric.width,
+                height: MenuRowMetric.memoryRowHeight
+            )
+        )
+
+        imageView.imageScaling = .scaleProportionallyDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        nameLabel.font = NSFont.menuFont(ofSize: 0)
+        nameLabel.textColor = .labelColor
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        memoryLabel.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        memoryLabel.textColor = .labelColor
+        memoryLabel.alignment = .right
+        memoryLabel.lineBreakMode = .byTruncatingTail
+        memoryLabel.setContentHuggingPriority(.required, for: .horizontal)
+        memoryLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        memoryLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        [separatorLabel, cpuTitleLabel, cpuValueLabel].forEach { label in
+            label.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            label.textColor = .tertiaryLabelColor
+            label.lineBreakMode = .byTruncatingTail
+            label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
+            label.translatesAutoresizingMaskIntoConstraints = false
+        }
+        separatorLabel.alignment = .center
+        cpuTitleLabel.alignment = .right
+        cpuValueLabel.alignment = .right
+
+        addSubview(imageView)
+        addSubview(nameLabel)
+        addSubview(memoryLabel)
+        addSubview(separatorLabel)
+        addSubview(cpuTitleLabel)
+        addSubview(cpuValueLabel)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: MenuRowMetric.memoryRowHeight),
+            widthAnchor.constraint(equalToConstant: MenuRowMetric.width),
+
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.indicatorLeading),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: MenuRowMetric.indicatorWidth),
+            imageView.heightAnchor.constraint(equalToConstant: MenuRowMetric.indicatorWidth),
+
+            nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: MenuRowMetric.titleLeading),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: memoryLabel.leadingAnchor, constant: -10),
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            memoryLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.memoryValueWidth),
+            memoryLabel.trailingAnchor.constraint(equalTo: separatorLabel.leadingAnchor, constant: -6),
+            memoryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            separatorLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.cpuSeparatorWidth),
+            separatorLabel.trailingAnchor.constraint(equalTo: cpuTitleLabel.leadingAnchor, constant: -4),
+            separatorLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            cpuTitleLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.cpuTitleWidth),
+            cpuTitleLabel.trailingAnchor.constraint(equalTo: cpuValueLabel.leadingAnchor, constant: -4),
+            cpuTitleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            cpuValueLabel.widthAnchor.constraint(equalToConstant: MenuRowMetric.cpuValueWidth),
+            cpuValueLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -MenuRowMetric.shortcutTrailing),
+            cpuValueLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+
+        update(app: app)
+    }
+
+    func update(app: MemoryUsageApp) {
+        currentApp = app
+        imageView.image = app.icon
+        nameLabel.stringValue = app.name
+        memoryLabel.stringValue = app.memoryDisplay
+        cpuValueLabel.stringValue = app.percentDisplay
+        needsLayout = true
+        needsDisplay = true
+
+        if isHovering {
+            onHoverBegan(app, self)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+        onHoverBegan(currentApp, self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        onHoverEnded(currentApp)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+}
+
+private final class MemoryTrendPanelController {
+    private static let panelSize = NSSize(width: 248, height: 164)
+
+    private let contentView = MemoryTrendPanelView()
+    private var panel: NSPanel?
+    private(set) var visibleAppID: String?
+
+    func show(history: MemoryUsageHistory, relativeTo anchorView: NSView) {
+        update(history: history)
+
+        let panel = existingOrNewPanel()
+        position(panel: panel, relativeTo: anchorView)
+        panel.orderFront(nil)
+    }
+
+    func show(systemHistory: SystemPressureHistory, relativeTo anchorView: NSView) {
+        update(systemHistory: systemHistory)
+
+        let panel = existingOrNewPanel()
+        position(panel: panel, relativeTo: anchorView)
+        panel.orderFront(nil)
+    }
+
+    func update(history: MemoryUsageHistory) {
+        visibleAppID = history.appID
+        contentView.update(history: history)
+    }
+
+    func update(systemHistory: SystemPressureHistory) {
+        visibleAppID = SystemPressureHistory.id
+        contentView.update(systemHistory: systemHistory)
+    }
+
+    func hide() {
+        visibleAppID = nil
+        panel?.orderOut(nil)
+    }
+
+    private func existingOrNewPanel() -> NSPanel {
+        if let panel {
+            return panel
+        }
+
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = contentView
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.isReleasedWhenClosed = false
+        self.panel = panel
+        return panel
+    }
+
+    private func position(panel: NSPanel, relativeTo anchorView: NSView) {
+        guard let window = anchorView.window else {
+            return
+        }
+
+        let anchorRectInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        let anchorRect = window.convertToScreen(anchorRectInWindow)
+        let screenFrame = window.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+        let margin: CGFloat = 8
+        let size = Self.panelSize
+
+        var origin = NSPoint(
+            x: anchorRect.maxX + margin,
+            y: anchorRect.midY - size.height / 2
+        )
+
+        if origin.x + size.width > screenFrame.maxX - margin {
+            origin.x = anchorRect.minX - size.width - margin
+        }
+
+        origin.y = min(
+            max(origin.y, screenFrame.minY + margin),
+            screenFrame.maxY - size.height - margin
+        )
+
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+}
+
+private final class MemoryTrendPanelView: NSVisualEffectView {
+    private static let preferredSize = NSSize(width: 248, height: 164)
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.includesActualByteCount = false
+        formatter.isAdaptive = true
+        return formatter
+    }()
+
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let rangeLabel = NSTextField(labelWithString: AppText.memoryTrendLast24Hours)
+    private let currentLabel = NSTextField(labelWithString: "")
+    private let peakLabel = NSTextField(labelWithString: "")
+    private let chartView = MemoryTrendChartView()
+
+    init() {
+        super.init(frame: NSRect(origin: .zero, size: Self.preferredSize))
+
+        material = .popover
+        blendingMode = .behindWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.masksToBounds = true
+        updateLayerBorder()
+
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        rangeLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        rangeLabel.textColor = .secondaryLabelColor
+        rangeLabel.alignment = .right
+        rangeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        rangeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        rangeLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        currentLabel.font = .monospacedSystemFont(ofSize: 11, weight: .semibold)
+        currentLabel.textColor = .labelColor
+        currentLabel.lineBreakMode = .byTruncatingTail
+        currentLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        peakLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        peakLabel.textColor = .secondaryLabelColor
+        peakLabel.lineBreakMode = .byTruncatingTail
+        peakLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        chartView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(titleLabel)
+        addSubview(rangeLabel)
+        addSubview(currentLabel)
+        addSubview(peakLabel)
+        addSubview(chartView)
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.preferredSize.width),
+            heightAnchor.constraint(equalToConstant: Self.preferredSize.height),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: rangeLabel.leadingAnchor, constant: -8),
+
+            rangeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            rangeLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+
+            currentLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            currentLabel.trailingAnchor.constraint(equalTo: rangeLabel.trailingAnchor),
+            currentLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+
+            peakLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            peakLabel.trailingAnchor.constraint(equalTo: rangeLabel.trailingAnchor),
+            peakLabel.topAnchor.constraint(equalTo: currentLabel.bottomAnchor, constant: 3),
+
+            chartView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            chartView.trailingAnchor.constraint(equalTo: rangeLabel.trailingAnchor),
+            chartView.topAnchor.constraint(equalTo: peakLabel.bottomAnchor, constant: 8),
+            chartView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+        ])
+    }
+
+    func update(history: MemoryUsageHistory) {
+        titleLabel.stringValue = history.appName
+        titleLabel.toolTip = history.appName
+        currentLabel.stringValue = AppText.memoryTrendCurrent(
+            memory: Self.formattedBytes(history.currentBytes),
+            cpu: Self.formattedCPU(history.currentCPUPercent)
+        )
+        peakLabel.stringValue = AppText.memoryTrendPeak(
+            memory: Self.formattedBytes(history.peakBytes),
+            cpu: Self.formattedCPU(history.peakCPUPercent)
+        )
+        chartView.update(history: history)
+    }
+
+    func update(systemHistory: SystemPressureHistory) {
+        titleLabel.stringValue = AppText.memoryUsageSectionTitle
+        titleLabel.toolTip = AppText.memoryUsageSectionTitle
+        currentLabel.stringValue = AppText.memoryTrendCurrent(
+            memory: Self.formattedBytes(systemHistory.current.memoryUsedBytes),
+            cpu: Self.formattedCPU(systemHistory.current.cpuPercent)
+        )
+        peakLabel.stringValue = AppText.memoryTrendPeak(
+            memory: Self.formattedBytes(systemHistory.peakMemoryUsedBytes),
+            cpu: Self.formattedCPU(systemHistory.peakCPUPercent)
+        )
+        chartView.update(systemHistory: systemHistory)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateLayerBorder()
+    }
+
+    private func updateLayerBorder() {
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
+    }
+
+    private static func formattedBytes(_ bytes: UInt64) -> String {
+        byteFormatter.string(fromByteCount: Int64(bytes))
+    }
+
+    private static func formattedCPU(_ cpuPercent: Double) -> String {
+        String(format: "%.1f%%", cpuPercent)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+}
+
+private final class MemoryTrendChartView: NSView {
+    private struct ChartPoint {
+        let timestamp: Date
+        let memoryValue: Double
+        let cpuPercent: Double
+    }
+
+    private enum ChartData {
+        case app(MemoryUsageHistory)
+        case system(SystemPressureHistory)
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private var chartData: ChartData?
+
+    override var isFlipped: Bool {
+        false
+    }
+
+    func update(history: MemoryUsageHistory) {
+        chartData = .app(history)
+        needsDisplay = true
+    }
+
+    func update(systemHistory: SystemPressureHistory) {
+        chartData = .system(systemHistory)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let timeLabelHeight: CGFloat = 14
+        let chartRect = NSRect(
+            x: bounds.minX + 2,
+            y: bounds.minY + timeLabelHeight + 4,
+            width: max(bounds.width - 4, 0),
+            height: max(bounds.height - timeLabelHeight - 8, 0)
+        )
+        guard chartRect.width > 1, chartRect.height > 1 else {
+            return
+        }
+
+        drawGrid(in: chartRect)
+
+        guard let chartData else {
+            let now = Date()
+            drawTimeLabels(startDate: now.addingTimeInterval(-24 * 60 * 60), endDate: now)
+            return
+        }
+
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-24 * 60 * 60)
+        let points: [ChartPoint]
+        let memoryScale: Double
+        switch chartData {
+        case .app(let history):
+            points = history.points
+                .filter { $0.timestamp >= cutoff }
+                .sorted { $0.timestamp < $1.timestamp }
+                .map { point in
+                    ChartPoint(
+                        timestamp: point.timestamp,
+                        memoryValue: Double(point.residentBytes),
+                        cpuPercent: point.cpuPercent
+                    )
+                }
+            memoryScale = max(points.map(\.memoryValue).max() ?? 0, 1)
+        case .system(let history):
+            points = history.points
+                .filter { $0.timestamp >= cutoff }
+                .sorted { $0.timestamp < $1.timestamp }
+                .map { point in
+                    ChartPoint(
+                        timestamp: point.timestamp,
+                        memoryValue: point.memoryPercent,
+                        cpuPercent: point.cpuPercent
+                    )
+                }
+            memoryScale = 100
+        }
+
+        guard let firstPoint = points.first else {
+            drawTimeLabels(startDate: cutoff, endDate: now)
+            return
+        }
+
+        let firstTimestamp = max(cutoff.timeIntervalSinceReferenceDate, firstPoint.timestamp.timeIntervalSinceReferenceDate)
+        let lastTimestamp = max(now.timeIntervalSinceReferenceDate, points.last?.timestamp.timeIntervalSinceReferenceDate ?? firstTimestamp)
+        let startDate = Date(timeIntervalSinceReferenceDate: firstTimestamp)
+        let endDate = Date(timeIntervalSinceReferenceDate: lastTimestamp)
+        let timestampRange = max(lastTimestamp - firstTimestamp, 1)
+        let maxCPUPercent = max(points.map(\.cpuPercent).max() ?? 0, 100)
+        let hasSinglePoint = points.count == 1
+
+        let xPosition: (ChartPoint) -> CGFloat = { point in
+            let xRatio = hasSinglePoint
+                ? 1
+                : (point.timestamp.timeIntervalSinceReferenceDate - firstTimestamp) / timestampRange
+            return chartRect.minX + chartRect.width * min(max(CGFloat(xRatio), 0), 1)
+        }
+
+        let makeMemoryPoint: (ChartPoint) -> NSPoint = { point in
+            let yRatio = point.memoryValue / memoryScale
+            return NSPoint(
+                x: xPosition(point),
+                y: chartRect.minY + chartRect.height * min(max(CGFloat(yRatio), 0), 1)
+            )
+        }
+
+        let makeCPUPoint: (ChartPoint) -> NSPoint = { point in
+            let yRatio = point.cpuPercent / maxCPUPercent
+            return NSPoint(
+                x: xPosition(point),
+                y: chartRect.minY + chartRect.height * min(max(CGFloat(yRatio), 0), 1)
+            )
+        }
+
+        let memoryPoints = points.map(makeMemoryPoint)
+        let cpuPoints = points.map(makeCPUPoint)
+
+        drawMemoryWater(points: memoryPoints, in: chartRect)
+        drawLine(points: cpuPoints, color: NSColor.controlAccentColor.withAlphaComponent(0.95), lineWidth: 2)
+        drawEndpoint(at: makeCPUPoint(points.last ?? firstPoint), color: .controlAccentColor)
+        drawTimeLabels(startDate: startDate, endDate: endDate)
+    }
+
+    private func drawGrid(in rect: NSRect) {
+        let gridPath = NSBezierPath()
+        for index in 0...2 {
+            let y = rect.minY + rect.height * CGFloat(index) / 2
+            gridPath.move(to: NSPoint(x: rect.minX, y: y))
+            gridPath.line(to: NSPoint(x: rect.maxX, y: y))
+        }
+
+        NSColor.separatorColor.withAlphaComponent(0.32).setStroke()
+        gridPath.lineWidth = 0.5
+        gridPath.stroke()
+    }
+
+    private func drawMemoryWater(points: [NSPoint], in rect: NSRect) {
+        guard let firstPoint = points.first, let lastPoint = points.last else {
+            return
+        }
+
+        let fillPath = NSBezierPath()
+        fillPath.move(to: NSPoint(x: firstPoint.x, y: rect.minY))
+        points.forEach { fillPath.line(to: $0) }
+        fillPath.line(to: NSPoint(x: lastPoint.x, y: rect.minY))
+        fillPath.close()
+
+        NSColor.systemBlue.withAlphaComponent(0.16).setFill()
+        fillPath.fill()
+        drawLine(points: points, color: NSColor.systemBlue.withAlphaComponent(0.28), lineWidth: 1)
+    }
+
+    private func drawLine(points: [NSPoint], color: NSColor, lineWidth: CGFloat) {
+        let linePath = NSBezierPath()
+        for (index, point) in points.enumerated() {
+            if index == 0 {
+                linePath.move(to: point)
+            } else {
+                linePath.line(to: point)
+            }
+        }
+
+        color.setStroke()
+        linePath.lineWidth = lineWidth
+        linePath.lineJoinStyle = .round
+        linePath.lineCapStyle = .round
+        linePath.stroke()
+    }
+
+    private func drawEndpoint(at point: NSPoint, color: NSColor) {
+        let dotRect = NSRect(
+            x: point.x - 2.5,
+            y: point.y - 2.5,
+            width: 5,
+            height: 5
+        )
+        color.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
+    }
+
+    private func drawTimeLabels(startDate: Date, endDate: Date) {
+        let startTimestamp = startDate.timeIntervalSinceReferenceDate
+        let endTimestamp = max(endDate.timeIntervalSinceReferenceDate, startTimestamp)
+        let middleDate = Date(timeIntervalSinceReferenceDate: (startTimestamp + endTimestamp) / 2)
+        let y: CGFloat = bounds.minY
+        let height: CGFloat = 12
+        let labelWidth: CGFloat = 58
+        let centerWidth: CGFloat = 70
+
+        drawTimeLabel(
+            Self.timeFormatter.string(from: startDate),
+            in: NSRect(x: bounds.minX + 1, y: y, width: labelWidth, height: height),
+            alignment: .left
+        )
+        drawTimeLabel(
+            Self.timeFormatter.string(from: middleDate),
+            in: NSRect(x: bounds.midX - centerWidth / 2, y: y, width: centerWidth, height: height),
+            alignment: .center
+        )
+        drawTimeLabel(
+            Self.timeFormatter.string(from: endDate),
+            in: NSRect(x: bounds.maxX - labelWidth - 1, y: y, width: labelWidth, height: height),
+            alignment: .right
+        )
+    }
+
+    private func drawTimeLabel(_ label: String, in rect: NSRect, alignment: NSTextAlignment) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = alignment
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.68),
+            .paragraphStyle: paragraphStyle
+        ]
+        NSString(string: label).draw(in: rect, withAttributes: attributes)
     }
 }
 

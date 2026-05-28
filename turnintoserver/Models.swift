@@ -486,6 +486,26 @@ enum AppText {
         )
     }
 
+    static var memoryTrendLast24Hours: String {
+        localized(chinese: "最近 24 小时", english: "Last 24 Hours")
+    }
+
+    static var memoryUsageSectionTitle: String {
+        localized(chinese: "系统压力", english: "System Pressure")
+    }
+
+    static func systemPressureSummary(memory: String, cpu: String) -> String {
+        localized(chinese: "\(memory) · CPU \(cpu)", english: "\(memory) · CPU \(cpu)")
+    }
+
+    static func memoryTrendCurrent(memory: String, cpu: String) -> String {
+        localized(chinese: "现在 \(memory) · CPU \(cpu)", english: "Now \(memory) · CPU \(cpu)")
+    }
+
+    static func memoryTrendPeak(memory: String, cpu: String) -> String {
+        localized(chinese: "峰值 \(memory) · CPU \(cpu)", english: "Peak \(memory) · CPU \(cpu)")
+    }
+
     static var checkForUpdates: String {
         localized(chinese: "检查更新", english: "Check for Updates")
     }

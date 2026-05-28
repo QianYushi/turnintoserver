@@ -21,6 +21,7 @@ final class AppState: ObservableObject {
     private static let minimumTimedServerModeDurationMinutes = 1
     private static let maximumTimedServerModeDurationMinutes = 7 * 24 * 60
     private static let maximumSavedRuntimeHeartbeatAge: TimeInterval = 5 * 60
+    private static let topMemoryAppsRefreshInterval: TimeInterval = 2
 
     @Published private(set) var powerSource: PowerSource {
         didSet {
@@ -140,10 +141,23 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published private(set) var topMemoryApps: [MemoryUsageApp] = [] {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var systemPressure: SystemPressureSnapshot? {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+
     private let defaults: UserDefaults
     private let monitor: PowerSourceMonitor
     private let lidMonitor: LidStateMonitor
     private let powerManager: PowerManager
+    private let memoryMonitor: MemoryUsageMonitor
+    private let memoryHistoryStore: MemoryUsageHistoryStore
     private let launchAtLoginManager: LaunchAtLoginManager
     private let shouldStopExpiredTimedServerModeOnStart: Bool
     private var hasStarted = false
@@ -156,20 +170,27 @@ final class AppState: ObservableObject {
     private var timedServerModeTimer: Timer?
     private var isHandlingTimedServerModeExpiration = false
     private var batteryNotificationTimer: Timer?
+    private var topMemoryAppsTimer: Timer?
     private var sentLowBatteryThresholds = Set<Int>()
     private var temporarilyAllowBatteryServerMode = false
+    private var isRefreshingTopMemoryApps = false
+    private var topMemoryAppsRefreshTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
         monitor: PowerSourceMonitor = PowerSourceMonitor(),
         lidMonitor: LidStateMonitor = LidStateMonitor(),
         powerManager: PowerManager? = nil,
+        memoryMonitor: MemoryUsageMonitor = MemoryUsageMonitor(),
+        memoryHistoryStore: MemoryUsageHistoryStore = MemoryUsageHistoryStore(),
         launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
     ) {
         self.defaults = defaults
         self.monitor = monitor
         self.lidMonitor = lidMonitor
         self.powerManager = powerManager ?? PowerManager()
+        self.memoryMonitor = memoryMonitor
+        self.memoryHistoryStore = memoryHistoryStore
         self.launchAtLoginManager = launchAtLoginManager
 
         defaults.removeObject(forKey: "serverModeActive")
@@ -312,6 +333,29 @@ final class AppState: ObservableObject {
 
     var serverModeTimeDisplay: String? {
         timedServerModeRemainingDisplay ?? serverModeRuntimeDisplay
+    }
+
+    var shouldShowMemoryUsageRows: Bool {
+        serverModeRequested || serverModeActive
+    }
+
+    var systemPressureDisplay: String {
+        guard let systemPressure else {
+            return ""
+        }
+
+        return AppText.systemPressureSummary(
+            memory: systemPressure.memoryDisplay,
+            cpu: systemPressure.cpuPercentDisplay
+        )
+    }
+
+    var systemPressureMemoryDisplay: String {
+        systemPressure?.memoryDisplay ?? ""
+    }
+
+    var systemPressureCPUDisplay: String {
+        systemPressure?.cpuPercentDisplay ?? ""
     }
 
     static func normalizedTimedServerModeDuration(_ minutes: Int?) -> Int? {
@@ -645,6 +689,7 @@ final class AppState: ObservableObject {
         hasStarted = true
         startWakeObservers()
         startBatteryNotificationTimer()
+        startTopMemoryAppsTimer()
 
         monitor.start { [weak self] source in
             self?.handlePowerSourceUpdate(source)
@@ -658,6 +703,63 @@ final class AppState: ObservableObject {
             await refreshServerModeStatus()
             await stopExpiredTimedServerModeOnStartIfNeeded()
         }
+    }
+
+    private func startTopMemoryAppsTimer() {
+        refreshTopMemoryApps()
+
+        guard topMemoryAppsTimer == nil else {
+            return
+        }
+
+        let timer = Timer(timeInterval: Self.topMemoryAppsRefreshInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshTopMemoryApps()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        topMemoryAppsTimer = timer
+    }
+
+    private func refreshTopMemoryApps() {
+        if isRefreshingTopMemoryApps {
+            return
+        }
+
+        isRefreshingTopMemoryApps = true
+        topMemoryAppsRefreshTask?.cancel()
+
+        topMemoryAppsRefreshTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                self.isRefreshingTopMemoryApps = false
+            }
+
+            let snapshot = await self.memoryMonitor.currentSnapshot()
+            guard !Task.isCancelled else {
+                return
+            }
+
+            self.memoryHistoryStore.recordIfNeeded(snapshot: snapshot)
+            self.systemPressure = snapshot.systemPressure
+            self.topMemoryApps = self.memoryMonitor.topApplications(from: snapshot, limit: 5)
+        }
+    }
+
+    func memoryUsageHistory(for app: MemoryUsageApp) -> MemoryUsageHistory? {
+        memoryHistoryStore.history(
+            for: app,
+            physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory
+        )
+    }
+
+    func systemPressureHistory() -> SystemPressureHistory? {
+        memoryHistoryStore.systemHistory(
+            current: systemPressure,
+            physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory
+        )
     }
 
     func setAllowBatteryServerMode(_ isEnabled: Bool) {
