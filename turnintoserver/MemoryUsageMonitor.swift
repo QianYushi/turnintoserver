@@ -32,6 +32,7 @@ struct MemoryUsageApp: Identifiable {
 
 struct MemoryUsageSnapshotEntry: Sendable {
     let id: String
+    let name: String
     let residentBytes: UInt64
     let percentOfPhysicalMemory: Double
     let cpuPercent: Double
@@ -102,6 +103,7 @@ struct SystemPressureHistory {
 
 final class MemoryUsageHistoryStore {
     private struct AppSeries {
+        var appName: String
         var points: [MemoryUsageHistoryPoint] = []
     }
 
@@ -137,7 +139,8 @@ final class MemoryUsageHistoryStore {
         }
 
         for entry in snapshot.entries {
-            var series = seriesByAppID[entry.id] ?? AppSeries()
+            var series = seriesByAppID[entry.id] ?? AppSeries(appName: entry.name)
+            series.appName = entry.name
             series.points.append(
                 MemoryUsageHistoryPoint(
                     timestamp: snapshot.timestamp,
@@ -158,6 +161,59 @@ final class MemoryUsageHistoryStore {
         for appID in expiredAppIDs {
             seriesByAppID.removeValue(forKey: appID)
         }
+    }
+
+    func history(matching query: String, physicalMemoryBytes: UInt64) -> MemoryUsageHistory? {
+        let normalizedQuery = Self.normalized(query)
+        guard !normalizedQuery.isEmpty else {
+            return nil
+        }
+
+        let scoredMatches = seriesByAppID.compactMap { appID, series -> (score: Int, appID: String, series: AppSeries)? in
+            guard !series.points.isEmpty else {
+                return nil
+            }
+
+            let normalizedAppID = Self.normalized(appID)
+            let normalizedAppName = Self.normalized(series.appName)
+            let normalizedBundleName = Self.normalizedBundleName(appID)
+            let score: Int
+
+            if normalizedAppID == normalizedQuery || normalizedAppName == normalizedQuery || normalizedBundleName == normalizedQuery {
+                score = 100
+            } else if normalizedAppName.contains(normalizedQuery) || normalizedBundleName.contains(normalizedQuery) {
+                score = 80
+            } else if normalizedAppID.contains(normalizedQuery) {
+                score = 60
+            } else {
+                return nil
+            }
+
+            return (score, appID, series)
+        }
+
+        guard let match = scoredMatches.sorted(by: { left, right in
+            if left.score != right.score {
+                return left.score > right.score
+            }
+            return left.series.points.count > right.series.points.count
+        }).first,
+              let current = match.series.points.last else {
+            return nil
+        }
+
+        let peakBytes = match.series.points.map(\.residentBytes).max() ?? current.residentBytes
+        let peakCPUPercent = match.series.points.map(\.cpuPercent).max() ?? current.cpuPercent
+        return MemoryUsageHistory(
+            appID: match.appID,
+            appName: match.series.appName,
+            currentBytes: current.residentBytes,
+            currentCPUPercent: current.cpuPercent,
+            peakBytes: peakBytes,
+            peakCPUPercent: peakCPUPercent,
+            physicalMemoryBytes: physicalMemoryBytes,
+            points: match.series.points
+        )
     }
 
     func history(for app: MemoryUsageApp, physicalMemoryBytes: UInt64) -> MemoryUsageHistory? {
@@ -204,6 +260,17 @@ final class MemoryUsageHistoryStore {
             physicalMemoryBytes: physicalMemoryBytes,
             points: points
         )
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private static func normalizedBundleName(_ appID: String) -> String {
+        let lastComponent = URL(fileURLWithPath: appID).lastPathComponent
+        let name = lastComponent.hasSuffix(".app") ? String(lastComponent.dropLast(4)) : lastComponent
+        return normalized(name)
     }
 
     func systemHistory(
@@ -367,6 +434,7 @@ final class MemoryUsageMonitor {
         let entries = groupedMemory.values.map { summary in
             MemoryUsageSnapshotEntry(
                 id: summary.appURL.path,
+                name: summary.appURL.deletingPathExtension().lastPathComponent,
                 residentBytes: summary.residentBytes,
                 percentOfPhysicalMemory: physicalMemory > 0
                     ? (Double(summary.residentBytes) / physicalMemory) * 100

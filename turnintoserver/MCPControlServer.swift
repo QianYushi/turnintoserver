@@ -329,6 +329,8 @@ final class MCPControlServer {
             return try statusJSON()
         case "get_system_load":
             return try systemLoadJSON()
+        case "get_memory_history":
+            return try memoryHistoryJSON(params: params)
         case "list_options":
             return try optionsJSON()
         case "prepare_setting_change":
@@ -398,7 +400,13 @@ final class MCPControlServer {
             "control": [
                 "socket_path": socketPath,
                 "setting_changes_require_confirmation": true,
-                "pending_confirmation_count": pendingSettingChanges.count
+                "pending_confirmation_count": pendingSettingChanges.count,
+                "agent_guide": [
+                    "version": MCPStdioServer.agentGuideVersion,
+                    "tool_name": "turnintoserver_get_agent_guide",
+                    "prompt_name": "turnintoserver_agent_guide",
+                    "install_or_upgrade_next_step": "首次安装或增量升级后，读取 turnintoserver_get_agent_guide，并用其中较新的指南替换 agent 侧旧的本 MCP 使用说明。"
+                ] as [String: Any]
             ]
         ]
     }
@@ -423,6 +431,42 @@ final class MCPControlServer {
                 ] as [String: Any]
             }
         ]
+    }
+
+    @MainActor
+    private func memoryHistoryJSON(params: [String: Any]) throws -> [String: Any] {
+        guard let appState else {
+            throw ControlFailure(code: "app_state_unavailable", message: "App state is not available.")
+        }
+
+        let includePoints = try optionalBoolValue(params["include_points"], field: "include_points") ?? false
+        let maxPoints = min(max(try optionalIntValue(params["max_points"], field: "max_points") ?? 120, 1), 2000)
+
+        if let appQuery = params["app"] as? String,
+           !appQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let history = appState.memoryUsageHistory(matching: appQuery) else {
+                throw ControlFailure(
+                    code: "history_not_found",
+                    message: "No memory history matched app query: \(appQuery). History is kept in memory for the current turnintoserver runtime only."
+                )
+            }
+
+            return appMemoryHistoryJSON(
+                history,
+                query: appQuery,
+                includePoints: includePoints,
+                maxPoints: maxPoints
+            )
+        }
+
+        guard let history = appState.systemPressureHistory() else {
+            throw ControlFailure(
+                code: "history_not_available",
+                message: "System pressure history is not available yet. Wait for turnintoserver to collect at least one sample."
+            )
+        }
+
+        return systemPressureHistoryJSON(history, includePoints: includePoints, maxPoints: maxPoints)
     }
 
     @MainActor
@@ -941,6 +985,135 @@ final class MCPControlServer {
         ] as [String: Any]
     }
 
+    private func appMemoryHistoryJSON(
+        _ history: MemoryUsageHistory,
+        query: String,
+        includePoints: Bool,
+        maxPoints: Int
+    ) -> [String: Any] {
+        let peakMemoryPoint = history.points.max(by: { $0.residentBytes < $1.residentBytes })
+        let peakCPUPoint = history.points.max(by: { $0.cpuPercent < $1.cpuPercent })
+        let currentTimestamp = history.points.last?.timestamp ?? Date()
+
+        var result: [String: Any] = [
+            "scope": "app",
+            "query": query,
+            "matched_app": [
+                "id": history.appID,
+                "name": history.appName
+            ],
+            "history_limit": [
+                "retention_hours": 24,
+                "storage": "in_memory",
+                "note": "History is limited to the current turnintoserver runtime and may be shorter than 24 hours after app restart or update."
+            ],
+            "period": [
+                "started_at": nullableDate(history.points.first?.timestamp),
+                "ended_at": nullableDate(history.points.last?.timestamp),
+                "sample_count": history.points.count
+            ],
+            "current": [
+                "timestamp": formatDate(currentTimestamp),
+                "resident_bytes": history.currentBytes,
+                "memory_display": memoryDisplay(history.currentBytes),
+                "percent_of_physical_memory": percentOfPhysicalMemory(history.currentBytes, physicalMemoryBytes: history.physicalMemoryBytes),
+                "cpu_percent": history.currentCPUPercent,
+                "cpu_display": percentDisplay(history.currentCPUPercent)
+            ],
+            "peak_memory": [
+                "timestamp": nullableDate(peakMemoryPoint?.timestamp),
+                "resident_bytes": peakMemoryPoint?.residentBytes ?? history.peakBytes,
+                "memory_display": memoryDisplay(peakMemoryPoint?.residentBytes ?? history.peakBytes),
+                "percent_of_physical_memory": percentOfPhysicalMemory(
+                    peakMemoryPoint?.residentBytes ?? history.peakBytes,
+                    physicalMemoryBytes: history.physicalMemoryBytes
+                )
+            ],
+            "peak_cpu": [
+                "timestamp": nullableDate(peakCPUPoint?.timestamp),
+                "cpu_percent": peakCPUPoint?.cpuPercent ?? history.peakCPUPercent,
+                "cpu_display": percentDisplay(peakCPUPoint?.cpuPercent ?? history.peakCPUPercent)
+            ]
+        ]
+
+        if includePoints {
+            result["points"] = Array(history.points.suffix(maxPoints)).map { point in
+                [
+                    "timestamp": formatDate(point.timestamp),
+                    "resident_bytes": point.residentBytes,
+                    "memory_display": memoryDisplay(point.residentBytes),
+                    "percent_of_physical_memory": percentOfPhysicalMemory(
+                        point.residentBytes,
+                        physicalMemoryBytes: history.physicalMemoryBytes
+                    ),
+                    "cpu_percent": point.cpuPercent,
+                    "cpu_display": percentDisplay(point.cpuPercent)
+                ] as [String: Any]
+            }
+        }
+
+        return result
+    }
+
+    private func systemPressureHistoryJSON(
+        _ history: SystemPressureHistory,
+        includePoints: Bool,
+        maxPoints: Int
+    ) -> [String: Any] {
+        let peakMemoryPoint = history.points.max(by: { $0.memoryUsedBytes < $1.memoryUsedBytes })
+        let peakCPUPoint = history.points.max(by: { $0.cpuPercent < $1.cpuPercent })
+
+        var result: [String: Any] = [
+            "scope": "system_pressure",
+            "history_limit": [
+                "retention_hours": 24,
+                "storage": "in_memory",
+                "note": "History is limited to the current turnintoserver runtime and may be shorter than 24 hours after app restart or update."
+            ],
+            "period": [
+                "started_at": nullableDate(history.points.first?.timestamp),
+                "ended_at": nullableDate(history.points.last?.timestamp),
+                "sample_count": history.points.count
+            ],
+            "current": [
+                "memory_used_bytes": history.current.memoryUsedBytes,
+                "memory_display": memoryDisplay(history.current.memoryUsedBytes),
+                "memory_percent": history.current.memoryPercent,
+                "memory_percent_display": percentDisplay(history.current.memoryPercent),
+                "cpu_percent": history.current.cpuPercent,
+                "cpu_display": percentDisplay(history.current.cpuPercent)
+            ],
+            "peak_memory": [
+                "timestamp": nullableDate(peakMemoryPoint?.timestamp),
+                "memory_used_bytes": peakMemoryPoint?.memoryUsedBytes ?? history.peakMemoryUsedBytes,
+                "memory_display": memoryDisplay(peakMemoryPoint?.memoryUsedBytes ?? history.peakMemoryUsedBytes),
+                "memory_percent": peakMemoryPoint?.memoryPercent ?? history.peakMemoryPercent,
+                "memory_percent_display": percentDisplay(peakMemoryPoint?.memoryPercent ?? history.peakMemoryPercent)
+            ],
+            "peak_cpu": [
+                "timestamp": nullableDate(peakCPUPoint?.timestamp),
+                "cpu_percent": peakCPUPoint?.cpuPercent ?? history.peakCPUPercent,
+                "cpu_display": percentDisplay(peakCPUPoint?.cpuPercent ?? history.peakCPUPercent)
+            ]
+        ]
+
+        if includePoints {
+            result["points"] = Array(history.points.suffix(maxPoints)).map { point in
+                [
+                    "timestamp": formatDate(point.timestamp),
+                    "memory_used_bytes": point.memoryUsedBytes,
+                    "memory_display": memoryDisplay(point.memoryUsedBytes),
+                    "memory_percent": point.memoryPercent,
+                    "memory_percent_display": percentDisplay(point.memoryPercent),
+                    "cpu_percent": point.cpuPercent,
+                    "cpu_display": percentDisplay(point.cpuPercent)
+                ] as [String: Any]
+            }
+        }
+
+        return result
+    }
+
     private func hotKeyJSON(_ shortcut: HotKeyShortcut?) -> Any {
         guard let shortcut else {
             return NSNull()
@@ -985,12 +1158,35 @@ final class MCPControlServer {
         return bool
     }
 
+    private func optionalBoolValue(_ value: Any?, field: String) throws -> Bool? {
+        guard let value, !isNull(value) else {
+            return nil
+        }
+        guard let bool = value as? Bool else {
+            throw ControlFailure(code: "invalid_value", message: "\(field) must be a boolean.")
+        }
+        return bool
+    }
+
     private func intValue(_ value: Any, option: String) throws -> Int {
         guard let number = value as? NSNumber,
               !isBoolNumber(number),
               number.doubleValue.isFinite,
               number.doubleValue.rounded() == number.doubleValue else {
             throw ControlFailure(code: "invalid_value", message: "\(option) must be an integer.")
+        }
+        return number.intValue
+    }
+
+    private func optionalIntValue(_ value: Any?, field: String) throws -> Int? {
+        guard let value, !isNull(value) else {
+            return nil
+        }
+        guard let number = value as? NSNumber,
+              !isBoolNumber(number),
+              number.doubleValue.isFinite,
+              number.doubleValue.rounded() == number.doubleValue else {
+            throw ControlFailure(code: "invalid_value", message: "\(field) must be an integer.")
         }
         return number.intValue
     }
@@ -1126,6 +1322,29 @@ final class MCPControlServer {
 
     private func formatDate(_ date: Date) -> String {
         Self.dateFormatter.string(from: date)
+    }
+
+    private func nullableDate(_ date: Date?) -> Any {
+        guard let date else {
+            return NSNull()
+        }
+        return formatDate(date)
+    }
+
+    private func memoryDisplay(_ bytes: UInt64) -> String {
+        let gigabytes = Double(bytes) / 1024 / 1024 / 1024
+        return String(format: "%.2fGB", gigabytes)
+    }
+
+    private func percentDisplay(_ percent: Double) -> String {
+        String(format: "%.1f%%", percent)
+    }
+
+    private func percentOfPhysicalMemory(_ bytes: UInt64, physicalMemoryBytes: UInt64) -> Double {
+        guard physicalMemoryBytes > 0 else {
+            return 0
+        }
+        return Double(bytes) / Double(physicalMemoryBytes) * 100
     }
 
     private static let dateFormatter: ISO8601DateFormatter = {

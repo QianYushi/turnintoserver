@@ -330,8 +330,8 @@ enum AppText {
 
     static var agentMCPInstallPrompt: String {
         localized(
-            chinese: "安装 turnintoserver MCP：以正在运行的这个 turnintoserver.app 为准，把它的 Contents/MacOS/turnintoserver 配置为 stdio MCP command，args 为 [\"--mcp-server\"]。无需 npm；配置后调用 turnintoserver_get_app_state 验证。",
-            english: "Install turnintoserver MCP: use this running turnintoserver.app as the source, configure its Contents/MacOS/turnintoserver as the stdio MCP command, and set args to [\"--mcp-server\"]. No npm is needed; after setup, call turnintoserver_get_app_state to verify."
+            chinese: "安装或更新 turnintoserver MCP：以正在运行的这个 turnintoserver.app 为准，把它的 Contents/MacOS/turnintoserver 配置为 stdio MCP command，args 为 [\"--mcp-server\"]，覆盖旧配置。无需 npm；配置后读取内置 agent 指南并更新本地 agent 指令，再调用 turnintoserver_get_app_state 验证。",
+            english: "Install or update turnintoserver MCP: use this running turnintoserver.app as the source, configure its Contents/MacOS/turnintoserver as the stdio MCP command, set args to [\"--mcp-server\"], and replace any older config. No npm is needed; after setup, read the built-in agent guide, update the local agent instructions, then call turnintoserver_get_app_state to verify."
         )
     }
 

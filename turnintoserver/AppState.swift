@@ -763,6 +763,13 @@ final class AppState: ObservableObject {
         )
     }
 
+    func memoryUsageHistory(matching query: String) -> MemoryUsageHistory? {
+        memoryHistoryStore.history(
+            matching: query,
+            physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory
+        )
+    }
+
     func systemPressureHistory() -> SystemPressureHistory? {
         memoryHistoryStore.systemHistory(
             current: systemPressure,
