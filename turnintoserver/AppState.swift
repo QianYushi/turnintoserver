@@ -440,6 +440,14 @@ final class AppState: ObservableObject {
         timedServerModePreventDisplaySleep.toggle()
     }
 
+    func setTimedServerModePreventDisplaySleep(_ isEnabled: Bool) {
+        guard canToggleTimedServerModePreventDisplaySleep else {
+            return
+        }
+
+        timedServerModePreventDisplaySleep = isEnabled
+    }
+
     func handleDisplayConfigurationDidChange() {
         updateTimedDisplayAwakeAssertion()
 
@@ -779,6 +787,34 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setServerModeEnabled(_ isEnabled: Bool) async {
+        guard !isCommandRunning else {
+            lastCommandStatus = AppText.commandAlreadyRunning
+            return
+        }
+
+        if isEnabled {
+            guard !serverModeRequested && !serverModeActive else {
+                return
+            }
+
+            serverModeRequested = true
+            await reconcileServerMode()
+        } else {
+            guard serverModeRequested || serverModeActive else {
+                return
+            }
+
+            if await needsClosedLidStopConfirmation(),
+               !confirmStopServerModeForClosedLidWithoutExternalDisplay() {
+                lastCommandStatus = AppText.stopServerModeCancelled
+                return
+            }
+
+            await disableServerMode()
+        }
+    }
+
     func setLaunchAtLoginEnabled(_ isEnabled: Bool) {
         guard launchAtLoginSupported else {
             launchAtLoginEnabled = false
@@ -941,6 +977,38 @@ final class AppState: ObservableObject {
         } else {
             lastCommandStatus = AppText.lowBatteryNotificationsOff
             sentLowBatteryThresholds.removeAll()
+        }
+    }
+
+    func setLowBatteryIMessageRecipientAddress(_ address: String) {
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let verifiedAddress = defaults.string(forKey: AppDefaultsKey.verifiedIMessageRecipientAddress)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        defaults.set(address, forKey: AppDefaultsKey.iMessageRecipientAddress)
+        if lowBatteryNotificationsEnabled && !Self.canEnableLowBatteryNotifications(defaults: defaults) {
+            lowBatteryNotificationsEnabled = false
+            sentLowBatteryThresholds.removeAll()
+            lastCommandStatus = AppText.lowBatteryNotificationsRequireTest
+        } else {
+            lastCommandStatus = trimmedAddress.isEmpty || trimmedAddress == verifiedAddress
+                ? AppText.lowBatteryNotificationSettingsUpdated
+                : AppText.iMessageNeedsRetest
+        }
+    }
+
+    func setLowBatteryBarkPushEndpoint(_ endpoint: String) {
+        let trimmedEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let verifiedEndpoint = defaults.string(forKey: AppDefaultsKey.verifiedBarkPushEndpoint)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        defaults.set(endpoint, forKey: AppDefaultsKey.barkPushEndpoint)
+        if lowBatteryNotificationsEnabled && !Self.canEnableLowBatteryNotifications(defaults: defaults) {
+            lowBatteryNotificationsEnabled = false
+            sentLowBatteryThresholds.removeAll()
+            lastCommandStatus = AppText.lowBatteryNotificationsRequireTest
+        } else {
+            lastCommandStatus = trimmedEndpoint.isEmpty || trimmedEndpoint == verifiedEndpoint
+                ? AppText.lowBatteryNotificationSettingsUpdated
+                : AppText.barkNeedsRetest
         }
     }
 

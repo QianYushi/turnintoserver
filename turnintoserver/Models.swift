@@ -239,6 +239,10 @@ enum AppText {
         localized(chinese: "复制", english: "Copy")
     }
 
+    static var copied: String {
+        localized(chinese: "已复制", english: "Copied")
+    }
+
     static var paste: String {
         localized(chinese: "粘贴", english: "Paste")
     }
@@ -314,6 +318,21 @@ enum AppText {
 
     static var githubURLDisplay: String {
         "https://github.com/QianYushi/turnintoserver"
+    }
+
+    static var agentMCPInstallPromptTitle: String {
+        localized(chinese: "MCP 安装说明 / MCP Setup", english: "MCP Setup / MCP 安装说明")
+    }
+
+    static var copyAgentMCPInstallPrompt: String {
+        localized(chinese: "复制安装说明", english: "Copy Prompt")
+    }
+
+    static var agentMCPInstallPrompt: String {
+        localized(
+            chinese: "安装 turnintoserver MCP：以正在运行的这个 turnintoserver.app 为准，把它的 Contents/MacOS/turnintoserver 配置为 stdio MCP command，args 为 [\"--mcp-server\"]。无需 npm；配置后调用 turnintoserver_get_app_state 验证。",
+            english: "Install turnintoserver MCP: use this running turnintoserver.app as the source, configure its Contents/MacOS/turnintoserver as the stdio MCP command, and set args to [\"--mcp-server\"]. No npm is needed; after setup, call turnintoserver_get_app_state to verify."
+        )
     }
 
     static var shortcutHintsTitle: String {
@@ -632,6 +651,10 @@ enum AppText {
 
     static var lowBatteryNotificationsOff: String {
         localized(chinese: "低电量通知已关闭", english: "Low battery alerts are off")
+    }
+
+    static var lowBatteryNotificationSettingsUpdated: String {
+        localized(chinese: "低电量提醒设置已更新", english: "Low battery alert settings updated")
     }
 
     static func launchAtLoginFailed(_ message: String) -> String {

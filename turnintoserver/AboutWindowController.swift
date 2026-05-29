@@ -12,9 +12,9 @@ final class AboutWindowController: NSWindowController {
         window.styleMask = [.titled, .closable]
         window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 500, height: 420)
-        window.contentMaxSize = NSSize(width: 500, height: 420)
-        window.setContentSize(NSSize(width: 500, height: 420))
+        window.contentMinSize = NSSize(width: 520, height: 500)
+        window.contentMaxSize = NSSize(width: 520, height: 500)
+        window.setContentSize(NSSize(width: 520, height: 500))
         Self.configureCenteredTitle(for: window)
         window.center()
 
@@ -141,6 +141,7 @@ final class TimedServerModeSettingsWindowController: NSWindowController {
 
 private struct AboutView: View {
     @ObservedObject private var updateModel: PreferencesUpdateViewModel
+    @State private var didCopyAgentMCPInstallPrompt = false
 
     @MainActor
     init(appState: AppState) {
@@ -151,11 +152,12 @@ private struct AboutView: View {
         VStack(spacing: 18) {
             Spacer(minLength: 2)
             header
+            agentMCPInstallSection
             updateSection
             Spacer(minLength: 0)
         }
         .padding(EdgeInsets(top: 36, leading: 34, bottom: 28, trailing: 34))
-        .frame(width: 500, height: 420)
+        .frame(width: 520, height: 500)
     }
 
     private var header: some View {
@@ -189,6 +191,47 @@ private struct AboutView: View {
             .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private var agentMCPInstallSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Divider()
+                .padding(.horizontal, 10)
+
+            HStack(spacing: 10) {
+                Text(AppText.agentMCPInstallPromptTitle)
+                    .font(.system(size: 12, weight: .semibold))
+
+                Spacer()
+
+                Button(didCopyAgentMCPInstallPrompt ? AppText.copied : AppText.copyAgentMCPInstallPrompt) {
+                    copyAgentMCPInstallPrompt()
+                }
+            }
+
+            Text(Self.agentMCPInstallPrompt)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .lineLimit(5)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+    }
+
+    private func copyAgentMCPInstallPrompt() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.agentMCPInstallPrompt, forType: .string)
+        didCopyAgentMCPInstallPrompt = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            didCopyAgentMCPInstallPrompt = false
+        }
+    }
+
+    private static var agentMCPInstallPrompt: String {
+        AppText.agentMCPInstallPrompt
     }
 
     private var updateSection: some View {

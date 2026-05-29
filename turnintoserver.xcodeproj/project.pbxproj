@@ -19,6 +19,8 @@
 		A1000000000000000000000A /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* HotKeyManager.swift */; };
 		A1000000000000000000000B /* AboutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AboutWindowController.swift */; };
 		A1000000000000000000000C /* MemoryUsageMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* MemoryUsageMonitor.swift */; };
+		A1000000000000000000000D /* MCPControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* MCPControlServer.swift */; };
+		A1000000000000000000000E /* MCPStdioServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* MCPStdioServer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +39,8 @@
 		A20000000000000000000013 /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutWindowController.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* turnintoserver.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = turnintoserver.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000015 /* MemoryUsageMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryUsageMonitor.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* MCPControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPControlServer.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* MCPStdioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPStdioServer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +74,8 @@
 				A20000000000000000000012 /* HotKeyManager.swift */,
 				A20000000000000000000013 /* AboutWindowController.swift */,
 				A20000000000000000000015 /* MemoryUsageMonitor.swift */,
+				A20000000000000000000016 /* MCPControlServer.swift */,
+				A20000000000000000000017 /* MCPStdioServer.swift */,
 				A20000000000000000000005 /* ShellRunner.swift */,
 				A20000000000000000000006 /* Models.swift */,
 				A20000000000000000000007 /* Info.plist */,
@@ -165,6 +171,8 @@
 				A1000000000000000000000A /* HotKeyManager.swift in Sources */,
 				A1000000000000000000000B /* AboutWindowController.swift in Sources */,
 				A1000000000000000000000C /* MemoryUsageMonitor.swift in Sources */,
+				A1000000000000000000000D /* MCPControlServer.swift in Sources */,
+				A1000000000000000000000E /* MCPStdioServer.swift in Sources */,
 				A10000000000000000000005 /* ShellRunner.swift in Sources */,
 				A10000000000000000000006 /* Models.swift in Sources */,
 			);

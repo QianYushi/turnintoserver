@@ -6,6 +6,11 @@ import CoreText
 enum TurnIntoServerMain {
     @MainActor
     static func main() {
+        if CommandLine.arguments.contains("--mcp-server") {
+            MCPStdioServer().run()
+            return
+        }
+
         let application = NSApplication.shared
         let appDelegate = AppDelegate()
         application.delegate = appDelegate
@@ -20,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appState: AppState?
     private var hotKeyManager: HotKeyManager?
     private var statusItemController: StatusItemController?
+    private var mcpControlServer: MCPControlServer?
     private var serverModeKeyEquivalentItem: NSMenuItem?
     private var batteryModeKeyEquivalentItem: NSMenuItem?
     private var hotKeysDidChangeObserver: NSObjectProtocol?
@@ -42,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         hotKeyManager?.start()
         statusItemController = StatusItemController(appState: state)
+        let controlServer = MCPControlServer(appState: state)
+        mcpControlServer = controlServer
+        controlServer.start()
         updateShortcutKeyEquivalentMenuItems()
         observeShortcutMenuItemChanges()
         state.start()
@@ -52,6 +61,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.removeObserver(hotKeysDidChangeObserver)
             self.hotKeysDidChangeObserver = nil
         }
+        mcpControlServer?.stop()
+        mcpControlServer = nil
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
