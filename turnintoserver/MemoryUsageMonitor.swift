@@ -431,6 +431,7 @@ final class MemoryUsageMonitor {
             }
         }
 
+        let processorCount = Self.logicalProcessorCount
         let entries = groupedMemory.values.map { summary in
             MemoryUsageSnapshotEntry(
                 id: summary.appURL.path,
@@ -439,7 +440,10 @@ final class MemoryUsageMonitor {
                 percentOfPhysicalMemory: physicalMemory > 0
                     ? (Double(summary.residentBytes) / physicalMemory) * 100
                     : 0,
-                cpuPercent: summary.cpuPercent
+                cpuPercent: Self.overallCPUPercent(
+                    fromProcessCPUPercent: summary.cpuPercent,
+                    processorCount: processorCount
+                )
             )
         }
 
@@ -467,7 +471,7 @@ final class MemoryUsageMonitor {
         return SystemPressureSnapshot(
             memoryUsedBytes: memoryUsedBytes,
             memoryPercent: min(max(memoryPercent, 0), 100),
-            cpuPercent: max(cpuPercent, 0)
+            cpuPercent: Self.clampedPercent(cpuPercent)
         )
     }
 
@@ -504,9 +508,30 @@ final class MemoryUsageMonitor {
     }
 
     private static func normalizedProcessCPUPercent(from samples: [ProcessMemorySample]) -> Double {
-        let processorCount = max(ProcessInfo.processInfo.processorCount, 1)
         let totalCPUPercent = samples.reduce(0) { $0 + $1.cpuPercent }
-        return totalCPUPercent / Double(processorCount)
+        return overallCPUPercent(fromProcessCPUPercent: totalCPUPercent)
+    }
+
+    private static var logicalProcessorCount: Int {
+        max(ProcessInfo.processInfo.processorCount, 1)
+    }
+
+    private static func overallCPUPercent(fromProcessCPUPercent cpuPercent: Double) -> Double {
+        overallCPUPercent(
+            fromProcessCPUPercent: cpuPercent,
+            processorCount: logicalProcessorCount
+        )
+    }
+
+    private static func overallCPUPercent(
+        fromProcessCPUPercent cpuPercent: Double,
+        processorCount: Int
+    ) -> Double {
+        clampedPercent(cpuPercent / Double(max(processorCount, 1)))
+    }
+
+    private static func clampedPercent(_ percent: Double) -> Double {
+        min(max(percent, 0), 100)
     }
 
     private static func currentSystemCPUPercent(

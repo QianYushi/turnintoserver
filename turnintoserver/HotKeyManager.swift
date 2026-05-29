@@ -10,6 +10,7 @@ extension Notification.Name {
     static let turnIntoServerMenuShouldRefresh = Notification.Name("turnIntoServerMenuShouldRefresh")
     static let turnIntoServerMenuHotKeyCaptureDidStart = Notification.Name("turnIntoServerMenuHotKeyCaptureDidStart")
     static let turnIntoServerMenuHotKeyCaptureDidEnd = Notification.Name("turnIntoServerMenuHotKeyCaptureDidEnd")
+    static let turnIntoServerUpdateInstallShouldTerminate = Notification.Name("turnIntoServerUpdateInstallShouldTerminate")
 }
 
 struct HotKeyShortcut: Codable, Equatable {

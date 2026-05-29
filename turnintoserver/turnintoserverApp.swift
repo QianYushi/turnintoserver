@@ -29,8 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var serverModeKeyEquivalentItem: NSMenuItem?
     private var batteryModeKeyEquivalentItem: NSMenuItem?
     private var hotKeysDidChangeObserver: NSObjectProtocol?
+    private var updateInstallTerminateObserver: NSObjectProtocol?
     private var isPreparingToTerminate = false
     private var didFinishTerminatePreparation = false
+    private var isTerminatingForUpdateInstall = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -53,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controlServer.start()
         updateShortcutKeyEquivalentMenuItems()
         observeShortcutMenuItemChanges()
+        observeUpdateInstallTerminationRequests()
         state.start()
     }
 
@@ -60,6 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let hotKeysDidChangeObserver {
             NotificationCenter.default.removeObserver(hotKeysDidChangeObserver)
             self.hotKeysDidChangeObserver = nil
+        }
+        if let updateInstallTerminateObserver {
+            NotificationCenter.default.removeObserver(updateInstallTerminateObserver)
+            self.updateInstallTerminateObserver = nil
         }
         mcpControlServer?.stop()
         mcpControlServer = nil
@@ -85,9 +92,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            let shouldTerminate = await appState.prepareForQuit()
+            let shouldTerminate = await appState.prepareForQuit(
+                skipClosedLidConfirmation: self.isTerminatingForUpdateInstall
+            )
             self.isPreparingToTerminate = false
             self.didFinishTerminatePreparation = shouldTerminate
+            if !shouldTerminate {
+                self.isTerminatingForUpdateInstall = false
+            }
             sender.reply(toApplicationShouldTerminate: shouldTerminate)
         }
 
@@ -163,6 +175,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateShortcutKeyEquivalentMenuItems()
             }
         }
+    }
+
+    private func observeUpdateInstallTerminationRequests() {
+        guard updateInstallTerminateObserver == nil else {
+            return
+        }
+
+        updateInstallTerminateObserver = NotificationCenter.default.addObserver(
+            forName: .turnIntoServerUpdateInstallShouldTerminate,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.terminateForUpdateInstall()
+            }
+        }
+    }
+
+    private func terminateForUpdateInstall() {
+        isTerminatingForUpdateInstall = true
+        NSApplication.shared.terminate(nil)
     }
 
     private func updateShortcutKeyEquivalentMenuItems() {

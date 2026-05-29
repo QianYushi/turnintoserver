@@ -144,8 +144,8 @@ private struct AboutView: View {
     @State private var didCopyAgentMCPInstallPrompt = false
 
     @MainActor
-    init(appState: AppState) {
-        updateModel = PreferencesUpdateViewModel(appState: appState)
+    init(appState _: AppState) {
+        updateModel = PreferencesUpdateViewModel()
     }
 
     var body: some View {
@@ -1074,11 +1074,6 @@ private final class PreferencesUpdateViewModel: ObservableObject {
 
     private var preparedDMGURL: URL?
     private var progressObservation: NSKeyValueObservation?
-    private let appState: AppState
-
-    init(appState: AppState) {
-        self.appState = appState
-    }
 
     static func openGitHub() {
         NSWorkspace.shared.open(githubURL)
@@ -1181,17 +1176,10 @@ private final class PreferencesUpdateViewModel: ObservableObject {
         canRestartToInstall = false
         statusText = AppText.restartingToInstallUpdate
 
-        guard await appState.prepareForQuit() else {
-            isInstalling = false
-            canRestartToInstall = true
-            statusText = AppText.updateInstallCancelled
-            return
-        }
-
         do {
             let targetAppURL = Self.preferredInstallTarget(for: Bundle.main.bundleURL)
             try Self.launchInstaller(dmgURL: preparedDMGURL, targetAppURL: targetAppURL)
-            NSApplication.shared.terminate(nil)
+            NotificationCenter.default.post(name: .turnIntoServerUpdateInstallShouldTerminate, object: nil)
         } catch {
             isInstalling = false
             canRestartToInstall = true

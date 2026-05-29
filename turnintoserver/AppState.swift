@@ -1051,8 +1051,9 @@ final class AppState: ObservableObject {
         )
     }
 
-    func prepareForQuit() async -> Bool {
-        if await needsClosedLidStopConfirmation(),
+    func prepareForQuit(skipClosedLidConfirmation: Bool = false) async -> Bool {
+        if !skipClosedLidConfirmation,
+           await needsClosedLidStopConfirmation(),
            !confirmQuitForClosedLidWithoutExternalDisplay() {
             lastCommandStatus = AppText.quitCancelled
             return false
