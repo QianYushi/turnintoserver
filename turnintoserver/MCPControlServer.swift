@@ -447,7 +447,7 @@ final class MCPControlServer {
             guard let history = appState.memoryUsageHistory(matching: appQuery) else {
                 throw ControlFailure(
                     code: "history_not_found",
-                    message: "No memory history matched app query: \(appQuery). History is kept in memory for the current turnintoserver runtime only."
+                    message: "No memory history matched app query: \(appQuery). History is persisted for up to 24 hours, but samples are collected only while turnintoserver is running."
                 )
             }
 
@@ -1004,8 +1004,8 @@ final class MCPControlServer {
             ],
             "history_limit": [
                 "retention_hours": 24,
-                "storage": "in_memory",
-                "note": "History is limited to the current turnintoserver runtime and may be shorter than 24 hours after app restart or update."
+                "storage": MemoryUsageHistoryStore.historyStorage,
+                "note": MemoryUsageHistoryStore.historyNote
             ],
             "period": [
                 "started_at": nullableDate(history.points.first?.timestamp),
@@ -1067,8 +1067,8 @@ final class MCPControlServer {
             "scope": "system_pressure",
             "history_limit": [
                 "retention_hours": 24,
-                "storage": "in_memory",
-                "note": "History is limited to the current turnintoserver runtime and may be shorter than 24 hours after app restart or update."
+                "storage": MemoryUsageHistoryStore.historyStorage,
+                "note": MemoryUsageHistoryStore.historyNote
             ],
             "period": [
                 "started_at": nullableDate(history.points.first?.timestamp),
