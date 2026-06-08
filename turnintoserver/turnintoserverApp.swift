@@ -761,7 +761,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
-        memoryTrendPanelController.hide()
+        memoryTrendPanelController.scheduleHideIfMouseOutsidePanel(expectedVisibleID: SystemPressureHistory.id)
     }
 
     private func showMemoryTrend(for app: MemoryUsageApp, relativeTo anchorView: NSView) {
@@ -778,7 +778,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
-        memoryTrendPanelController.hide()
+        memoryTrendPanelController.scheduleHideIfMouseOutsidePanel(expectedVisibleID: app.id)
     }
 
     private func addHiddenShortcutMenuItems() {
@@ -1943,21 +1943,28 @@ private final class MemoryTrendPanelController {
     private let contentView = MemoryTrendPanelView()
     private var panel: NSPanel?
     private(set) var visibleAppID: String?
+    private var hideRequestVersion = 0
+    private var hoverUpdateTimer: Timer?
+    private var hoverEventMonitor: Any?
 
     func show(history: MemoryUsageHistory, relativeTo anchorView: NSView) {
+        cancelPendingHide()
         update(history: history)
 
         let panel = existingOrNewPanel()
         position(panel: panel, relativeTo: anchorView)
         panel.orderFront(nil)
+        startHoverUpdateTimer()
     }
 
     func show(systemHistory: SystemPressureHistory, relativeTo anchorView: NSView) {
+        cancelPendingHide()
         update(systemHistory: systemHistory)
 
         let panel = existingOrNewPanel()
         position(panel: panel, relativeTo: anchorView)
         panel.orderFront(nil)
+        startHoverUpdateTimer()
     }
 
     func update(history: MemoryUsageHistory) {
@@ -1971,8 +1978,79 @@ private final class MemoryTrendPanelController {
     }
 
     func hide() {
+        hideRequestVersion += 1
         visibleAppID = nil
+        stopHoverUpdateTimer()
+        contentView.clearHover()
         panel?.orderOut(nil)
+    }
+
+    func scheduleHideIfMouseOutsidePanel(expectedVisibleID: String?, after delay: TimeInterval = 0.06) {
+        hideRequestVersion += 1
+        let requestVersion = hideRequestVersion
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  self.hideRequestVersion == requestVersion else {
+                return
+            }
+
+            if let expectedVisibleID,
+               self.visibleAppID != expectedVisibleID {
+                return
+            }
+
+            guard !self.isMouseInsidePanel else {
+                return
+            }
+
+            self.hide()
+        }
+    }
+
+    private func cancelPendingHide() {
+        hideRequestVersion += 1
+    }
+
+    private func startHoverUpdateTimer() {
+        hoverUpdateTimer?.invalidate()
+        if let hoverEventMonitor {
+            NSEvent.removeMonitor(hoverEventMonitor)
+        }
+
+        hoverEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
+            self?.updateChartHover()
+            return event
+        }
+
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.updateChartHover()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        hoverUpdateTimer = timer
+        updateChartHover()
+    }
+
+    private func stopHoverUpdateTimer() {
+        hoverUpdateTimer?.invalidate()
+        hoverUpdateTimer = nil
+        if let hoverEventMonitor {
+            NSEvent.removeMonitor(hoverEventMonitor)
+            self.hoverEventMonitor = nil
+        }
+    }
+
+    private func updateChartHover() {
+        guard let panel,
+              panel.isVisible else {
+            contentView.clearHover()
+            return
+        }
+
+        let isHoveringChart = contentView.updateHover(screenLocation: NSEvent.mouseLocation)
+        if isHoveringChart {
+            NSCursor.crosshair.set()
+        }
     }
 
     private func existingOrNewPanel() -> NSPanel {
@@ -1992,10 +2070,26 @@ private final class MemoryTrendPanelController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = false
+        panel.acceptsMouseMovedEvents = true
         panel.isReleasedWhenClosed = false
+        contentView.onMouseEntered = { [weak self] in
+            self?.cancelPendingHide()
+        }
+        contentView.onMouseExited = { [weak self] in
+            self?.scheduleHideIfMouseOutsidePanel(expectedVisibleID: nil, after: 0.02)
+        }
         self.panel = panel
         return panel
+    }
+
+    private var isMouseInsidePanel: Bool {
+        guard let panel,
+              panel.isVisible else {
+            return false
+        }
+
+        return panel.frame.insetBy(dx: -3, dy: -3).contains(NSEvent.mouseLocation)
     }
 
     private func position(panel: NSPanel, relativeTo anchorView: NSView) {
@@ -2045,6 +2139,10 @@ private final class MemoryTrendPanelView: NSVisualEffectView {
     private let currentLabel = NSTextField(labelWithString: "")
     private let peakLabel = NSTextField(labelWithString: "")
     private let chartView = MemoryTrendChartView()
+    private var currentSummaryText = ""
+    var onMouseEntered: (() -> Void)?
+    var onMouseExited: (() -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
 
     init() {
         super.init(frame: NSRect(origin: .zero, size: Self.preferredSize))
@@ -2106,8 +2204,8 @@ private final class MemoryTrendPanelView: NSVisualEffectView {
             peakLabel.trailingAnchor.constraint(equalTo: rangeLabel.trailingAnchor),
             peakLabel.topAnchor.constraint(equalTo: currentLabel.bottomAnchor, constant: 3),
 
-            chartView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            chartView.trailingAnchor.constraint(equalTo: rangeLabel.trailingAnchor),
+            chartView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            chartView.trailingAnchor.constraint(equalTo: trailingAnchor),
             chartView.topAnchor.constraint(equalTo: peakLabel.bottomAnchor, constant: 8),
             chartView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
         ])
@@ -2116,10 +2214,11 @@ private final class MemoryTrendPanelView: NSVisualEffectView {
     func update(history: MemoryUsageHistory) {
         titleLabel.stringValue = history.appName
         titleLabel.toolTip = history.appName
-        currentLabel.stringValue = AppText.memoryTrendCurrent(
+        currentSummaryText = AppText.memoryTrendCurrent(
             memory: Self.formattedBytes(history.currentBytes),
             cpu: Self.formattedCPU(history.currentCPUPercent)
         )
+        currentLabel.stringValue = currentSummaryText
         peakLabel.stringValue = AppText.memoryTrendPeak(
             memory: Self.formattedBytes(history.peakBytes),
             cpu: Self.formattedCPU(history.peakCPUPercent)
@@ -2130,10 +2229,11 @@ private final class MemoryTrendPanelView: NSVisualEffectView {
     func update(systemHistory: SystemPressureHistory) {
         titleLabel.stringValue = AppText.memoryUsageSectionTitle
         titleLabel.toolTip = AppText.memoryUsageSectionTitle
-        currentLabel.stringValue = AppText.memoryTrendCurrent(
+        currentSummaryText = AppText.memoryTrendCurrent(
             memory: Self.formattedBytes(systemHistory.current.memoryUsedBytes),
             cpu: Self.formattedCPU(systemHistory.current.cpuPercent)
         )
+        currentLabel.stringValue = currentSummaryText
         peakLabel.stringValue = AppText.memoryTrendPeak(
             memory: Self.formattedBytes(systemHistory.peakMemoryUsedBytes),
             cpu: Self.formattedCPU(systemHistory.peakCPUPercent)
@@ -2141,9 +2241,45 @@ private final class MemoryTrendPanelView: NSVisualEffectView {
         chartView.update(systemHistory: systemHistory)
     }
 
+    func updateHover(screenLocation: NSPoint) -> Bool {
+        let hoverResult = chartView.updateHover(screenLocation: screenLocation)
+        currentLabel.stringValue = hoverResult.summary ?? currentSummaryText
+        return hoverResult.isInsideChart
+    }
+
+    func clearHover() {
+        chartView.clearHover()
+        currentLabel.stringValue = currentSummaryText
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateLayerBorder()
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onMouseEntered?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onMouseExited?()
     }
 
     private func updateLayerBorder() {
@@ -2169,7 +2305,14 @@ private final class MemoryTrendChartView: NSView {
     private struct ChartPoint {
         let timestamp: Date
         let memoryValue: Double
+        let memoryLabel: String
         let cpuPercent: Double
+    }
+
+    private struct RenderedPoint {
+        let point: ChartPoint
+        let memoryPoint: NSPoint
+        let cpuPoint: NSPoint
     }
 
     private enum ChartData {
@@ -2177,13 +2320,27 @@ private final class MemoryTrendChartView: NSView {
         case system(SystemPressureHistory)
     }
 
-    private static let timeFormatter: DateFormatter = {
+    private static let hoverTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    private static let chineseCalendar = Calendar(identifier: .gregorian)
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.includesActualByteCount = false
+        formatter.isAdaptive = true
         return formatter
     }()
 
     private var chartData: ChartData?
+    private var hoverLocation: NSPoint?
+    private var hoverTrackingArea: NSTrackingArea?
+    private var renderedPoints: [RenderedPoint] = []
 
     override var isFlipped: Bool {
         false
@@ -2191,38 +2348,64 @@ private final class MemoryTrendChartView: NSView {
 
     func update(history: MemoryUsageHistory) {
         chartData = .app(history)
+        renderedPoints = []
         needsDisplay = true
     }
 
     func update(systemHistory: SystemPressureHistory) {
         chartData = .system(systemHistory)
+        renderedPoints = []
         needsDisplay = true
+    }
+
+    func updateHover(screenLocation: NSPoint) -> (isInsideChart: Bool, summary: String?) {
+        guard let window else {
+            clearHover()
+            return (false, nil)
+        }
+
+        let windowLocation = window.convertPoint(fromScreen: screenLocation)
+        let localLocation = convert(windowLocation, from: nil)
+        guard currentChartRect().contains(localLocation) else {
+            clearHover()
+            return (false, nil)
+        }
+
+        if hoverLocation != localLocation {
+            hoverLocation = localLocation
+            needsDisplay = true
+            displayIfNeeded()
+        }
+        return (true, hoverSummary(at: localLocation))
+    }
+
+    func clearHover() {
+        guard hoverLocation != nil else {
+            return
+        }
+        hoverLocation = nil
+        needsDisplay = true
+        displayIfNeeded()
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        renderedPoints = []
 
-        let timeLabelHeight: CGFloat = 14
-        let chartRect = NSRect(
-            x: bounds.minX + 2,
-            y: bounds.minY + timeLabelHeight + 4,
-            width: max(bounds.width - 4, 0),
-            height: max(bounds.height - timeLabelHeight - 8, 0)
-        )
+        let chartRect = currentChartRect()
         guard chartRect.width > 1, chartRect.height > 1 else {
-            return
-        }
-
-        drawGrid(in: chartRect)
-
-        guard let chartData else {
-            let now = Date()
-            drawTimeLabels(startDate: now.addingTimeInterval(-24 * 60 * 60), endDate: now)
             return
         }
 
         let now = Date()
         let cutoff = now.addingTimeInterval(-24 * 60 * 60)
+        drawGrid(in: chartRect)
+
+        guard let chartData else {
+            drawTimeLabels(in: chartRect, cutoff: cutoff)
+            return
+        }
+
         let points: [ChartPoint]
         let memoryScale: Double
         switch chartData {
@@ -2234,6 +2417,7 @@ private final class MemoryTrendChartView: NSView {
                     ChartPoint(
                         timestamp: point.timestamp,
                         memoryValue: Double(point.residentBytes),
+                        memoryLabel: Self.formattedBytes(point.residentBytes),
                         cpuPercent: point.cpuPercent
                     )
                 }
@@ -2246,6 +2430,7 @@ private final class MemoryTrendChartView: NSView {
                     ChartPoint(
                         timestamp: point.timestamp,
                         memoryValue: point.memoryPercent,
+                        memoryLabel: Self.formattedBytes(point.memoryUsedBytes),
                         cpuPercent: point.cpuPercent
                     )
                 }
@@ -2253,22 +2438,17 @@ private final class MemoryTrendChartView: NSView {
         }
 
         guard let firstPoint = points.first else {
-            drawTimeLabels(startDate: cutoff, endDate: now)
+            drawTimeLabels(in: chartRect, cutoff: cutoff)
             return
         }
 
-        let firstTimestamp = max(cutoff.timeIntervalSinceReferenceDate, firstPoint.timestamp.timeIntervalSinceReferenceDate)
-        let lastTimestamp = max(now.timeIntervalSinceReferenceDate, points.last?.timestamp.timeIntervalSinceReferenceDate ?? firstTimestamp)
-        let startDate = Date(timeIntervalSinceReferenceDate: firstTimestamp)
-        let endDate = Date(timeIntervalSinceReferenceDate: lastTimestamp)
+        let firstTimestamp = cutoff.timeIntervalSinceReferenceDate
+        let lastTimestamp = now.timeIntervalSinceReferenceDate
         let timestampRange = max(lastTimestamp - firstTimestamp, 1)
         let maxCPUPercent = max(points.map(\.cpuPercent).max() ?? 0, 100)
-        let hasSinglePoint = points.count == 1
 
         let xPosition: (ChartPoint) -> CGFloat = { point in
-            let xRatio = hasSinglePoint
-                ? 1
-                : (point.timestamp.timeIntervalSinceReferenceDate - firstTimestamp) / timestampRange
+            let xRatio = (point.timestamp.timeIntervalSinceReferenceDate - firstTimestamp) / timestampRange
             return chartRect.minX + chartRect.width * min(max(CGFloat(xRatio), 0), 1)
         }
 
@@ -2290,11 +2470,62 @@ private final class MemoryTrendChartView: NSView {
 
         let memoryPoints = points.map(makeMemoryPoint)
         let cpuPoints = points.map(makeCPUPoint)
+        renderedPoints = Array(zip(points, zip(memoryPoints, cpuPoints))).map { combined in
+            let point = combined.0
+            let renderedPair = combined.1
+            return RenderedPoint(
+                point: point,
+                memoryPoint: renderedPair.0,
+                cpuPoint: renderedPair.1
+            )
+        }
 
         drawMemoryWater(points: memoryPoints, in: chartRect)
         drawLine(points: cpuPoints, color: NSColor.controlAccentColor.withAlphaComponent(0.95), lineWidth: 2)
         drawEndpoint(at: makeCPUPoint(points.last ?? firstPoint), color: .controlAccentColor)
-        drawTimeLabels(startDate: startDate, endDate: endDate)
+        if let hoverLocation,
+           chartRect.contains(hoverLocation),
+           let nearestPoint = nearestRenderedPoint(to: hoverLocation) {
+            drawHover(for: nearestPoint, in: chartRect)
+        }
+        drawTimeLabels(in: chartRect, cutoff: cutoff)
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+
+        super.updateTrackingAreas()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        hoverLocation = convert(event.locationInWindow, from: nil)
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        clearHover()
+    }
+
+    private func currentChartRect() -> NSRect {
+        let timeLabelHeight: CGFloat = 14
+        let horizontalAxisInset: CGFloat = 16
+        return NSRect(
+            x: bounds.minX + horizontalAxisInset,
+            y: bounds.minY + timeLabelHeight + 4,
+            width: max(bounds.width - horizontalAxisInset * 2, 0),
+            height: max(bounds.height - timeLabelHeight - 8, 0)
+        )
     }
 
     private func drawGrid(in rect: NSRect) {
@@ -2354,41 +2585,97 @@ private final class MemoryTrendChartView: NSView {
         NSBezierPath(ovalIn: dotRect).fill()
     }
 
-    private func drawTimeLabels(startDate: Date, endDate: Date) {
-        let startTimestamp = startDate.timeIntervalSinceReferenceDate
-        let endTimestamp = max(endDate.timeIntervalSinceReferenceDate, startTimestamp)
-        let middleDate = Date(timeIntervalSinceReferenceDate: (startTimestamp + endTimestamp) / 2)
+    private func drawTimeLabels(in chartRect: NSRect, cutoff: Date) {
         let y: CGFloat = bounds.minY
         let height: CGFloat = 12
-        let labelWidth: CGFloat = 58
-        let centerWidth: CGFloat = 70
+        let labelWidth: CGFloat = 38
+        let labels: [(String, CGFloat)] = [
+            (timeTickLabel(for: cutoff), 0),
+            (timeTickLabel(for: cutoff.addingTimeInterval(6 * 60 * 60)), 0.25),
+            (timeTickLabel(for: cutoff.addingTimeInterval(12 * 60 * 60)), 0.5),
+            (timeTickLabel(for: cutoff.addingTimeInterval(18 * 60 * 60)), 0.75),
+            (AppText.memoryTrendNowTick, 1)
+        ]
 
-        drawTimeLabel(
-            Self.timeFormatter.string(from: startDate),
-            in: NSRect(x: bounds.minX + 1, y: y, width: labelWidth, height: height),
-            alignment: .left
-        )
-        drawTimeLabel(
-            Self.timeFormatter.string(from: middleDate),
-            in: NSRect(x: bounds.midX - centerWidth / 2, y: y, width: centerWidth, height: height),
-            alignment: .center
-        )
-        drawTimeLabel(
-            Self.timeFormatter.string(from: endDate),
-            in: NSRect(x: bounds.maxX - labelWidth - 1, y: y, width: labelWidth, height: height),
-            alignment: .right
-        )
+        for (label, ratio) in labels {
+            let x = chartRect.minX + chartRect.width * ratio
+            drawTimeTick(at: x, in: chartRect)
+            let rect = timeLabelRect(centerX: x, y: y, width: labelWidth, height: height)
+            drawTimeLabel(label, in: rect)
+        }
     }
 
-    private func drawTimeLabel(_ label: String, in rect: NSRect, alignment: NSTextAlignment) {
+    private func timeLabelRect(centerX: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> NSRect {
+        let horizontalPadding: CGFloat = 3
+        let minX = bounds.minX + horizontalPadding
+        let maxX = bounds.maxX - width - horizontalPadding
+        let originX = min(max(centerX - width / 2, minX), maxX)
+        return NSRect(x: originX, y: y, width: width, height: height)
+    }
+
+    private func drawTimeTick(at x: CGFloat, in chartRect: NSRect) {
+        let tickPath = NSBezierPath()
+        tickPath.move(to: NSPoint(x: x, y: chartRect.minY - 4))
+        tickPath.line(to: NSPoint(x: x, y: chartRect.minY + 3))
+        NSColor.labelColor.withAlphaComponent(0.24).setStroke()
+        tickPath.lineWidth = 0.75
+        tickPath.lineCapStyle = .round
+        tickPath.stroke()
+    }
+
+    private func timeTickLabel(for date: Date) -> String {
+        let calendar = Self.chineseCalendar
+        let hour = calendar.component(.hour, from: date)
+        return AppText.prefersChinese ? "\(hour)时" : "\(hour)h"
+    }
+
+    private func drawTimeLabel(_ label: String, in rect: NSRect) {
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = alignment
+        paragraphStyle.alignment = .center
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
             .foregroundColor: NSColor.labelColor.withAlphaComponent(0.68),
             .paragraphStyle: paragraphStyle
         ]
         NSString(string: label).draw(in: rect, withAttributes: attributes)
+    }
+
+    private func nearestRenderedPoint(to location: NSPoint) -> RenderedPoint? {
+        renderedPoints.min { left, right in
+            abs(left.cpuPoint.x - location.x) < abs(right.cpuPoint.x - location.x)
+        }
+    }
+
+    private func drawHover(for renderedPoint: RenderedPoint, in chartRect: NSRect) {
+        let x = renderedPoint.cpuPoint.x
+        let guidePath = NSBezierPath()
+        guidePath.move(to: NSPoint(x: x, y: chartRect.minY))
+        guidePath.line(to: NSPoint(x: x, y: chartRect.maxY))
+        NSColor.labelColor.withAlphaComponent(0.24).setStroke()
+        guidePath.lineWidth = 0.75
+        guidePath.stroke()
+
+        drawEndpoint(at: renderedPoint.memoryPoint, color: NSColor.systemBlue.withAlphaComponent(0.72))
+        drawEndpoint(at: renderedPoint.cpuPoint, color: .controlAccentColor)
+    }
+
+    private static func formattedBytes(_ bytes: UInt64) -> String {
+        byteFormatter.string(fromByteCount: Int64(bytes))
+    }
+
+    private static func formattedCPU(_ cpuPercent: Double) -> String {
+        String(format: "%.1f%%", cpuPercent)
+    }
+
+    private func hoverSummary(at location: NSPoint) -> String? {
+        guard let nearestPoint = nearestRenderedPoint(to: location) else {
+            return nil
+        }
+        return Self.hoverSummary(for: nearestPoint.point)
+    }
+
+    private static func hoverSummary(for point: ChartPoint) -> String {
+        "\(hoverTimeFormatter.string(from: point.timestamp))  \(point.memoryLabel) · CPU \(formattedCPU(point.cpuPercent))"
     }
 }
 

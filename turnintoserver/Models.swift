@@ -525,6 +525,10 @@ enum AppText {
         localized(chinese: "峰值 \(memory) · CPU \(cpu)", english: "Peak \(memory) · CPU \(cpu)")
     }
 
+    static var memoryTrendNowTick: String {
+        localized(chinese: "现在", english: "Now")
+    }
+
     static var checkForUpdates: String {
         localized(chinese: "检查更新", english: "Check for Updates")
     }
@@ -834,6 +838,10 @@ enum AppText {
 
     static func localized(chinese: String, english: String) -> String {
         isChinesePreferred ? chinese : english
+    }
+
+    static var prefersChinese: Bool {
+        isChinesePreferred
     }
 
     private static var isChinesePreferred: Bool {

@@ -447,6 +447,7 @@ final class MemoryUsageMonitor {
             process.standardError = Pipe()
 
             do {
+                process.environment = utf8ProcessEnvironment()
                 try process.run()
             } catch {
                 return []
@@ -465,6 +466,14 @@ final class MemoryUsageMonitor {
                 .compactMap(parseProcessMemorySample)
         }
         .value
+    }
+
+    private static func utf8ProcessEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
+        environment["LC_CTYPE"] = "en_US.UTF-8"
+        return environment
     }
 
     private static func parseProcessMemorySample(_ line: Substring) -> ProcessMemorySample? {
@@ -738,13 +747,75 @@ final class MemoryUsageMonitor {
 
     @MainActor
     private static func displayName(for appURL: URL) -> String {
-        let bundle = Bundle(url: appURL)
-        let info = bundle?.localizedInfoDictionary ?? bundle?.infoDictionary
-        let name = info?["CFBundleDisplayName"] as? String
-            ?? info?["CFBundleName"] as? String
-            ?? info?["CFBundleExecutable"] as? String
-            ?? appURL.deletingPathExtension().lastPathComponent
+        let bundles = metadataBundles(for: appURL)
+        let englishName = displayName(from: bundles.compactMap(englishInfoPlistStrings), requiresNonCJK: true)
+        let baseEnglishName = displayName(from: bundles.map(\.infoDictionary), requiresNonCJK: true)
+        let localizedName = displayName(from: bundles.map(\.localizedInfoDictionary), requiresNonCJK: false)
+        let baseName = displayName(from: bundles.map(\.infoDictionary), requiresNonCJK: false)
+        let pathName = normalizedDisplayName(appURL.lastPathComponent)
 
-        return name.isEmpty ? appURL.deletingPathExtension().lastPathComponent : name
+        return englishName
+            ?? baseEnglishName
+            ?? localizedName
+            ?? baseName
+            ?? pathName
+            ?? appURL.deletingPathExtension().lastPathComponent
+    }
+
+    private static func metadataBundles(for appURL: URL) -> [Bundle] {
+        let candidates = [
+            appURL,
+            appURL.appendingPathComponent("WrappedBundle", isDirectory: true)
+        ]
+
+        return candidates.compactMap { url in
+            guard let bundle = Bundle(url: url), bundle.infoDictionary != nil else {
+                return nil
+            }
+            return bundle
+        }
+    }
+
+    private static func englishInfoPlistStrings(from bundle: Bundle) -> [String: Any]? {
+        guard let url = bundle.url(
+            forResource: "InfoPlist",
+            withExtension: "strings",
+            subdirectory: nil,
+            localization: "en"
+        ),
+              let info = NSDictionary(contentsOf: url) as? [String: Any] else {
+            return nil
+        }
+
+        return info
+    }
+
+    private static func displayName(from infos: [[String: Any]?], requiresNonCJK: Bool) -> String? {
+        let keys = ["CFBundleName", "CFBundleDisplayName", "CFBundleExecutable"]
+        for key in keys {
+            for info in infos {
+                guard let name = normalizedDisplayName(info?[key] as? String) else {
+                    continue
+                }
+                if !requiresNonCJK || !containsCJK(name) {
+                    return name
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func normalizedDisplayName(_ rawName: String?) -> String? {
+        var name = rawName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name?.lowercased().hasSuffix(".app") == true {
+            name = String(name?.dropLast(4) ?? "")
+        }
+        return name?.isEmpty == false ? name : nil
+    }
+
+    private static func containsCJK(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            (0x4E00...0x9FFF).contains(scalar.value)
+        }
     }
 }
