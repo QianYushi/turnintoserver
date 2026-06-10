@@ -289,21 +289,6 @@ enum AppText {
         localized(chinese: "已取消退出", english: "Quit cancelled")
     }
 
-    static var batteryRestrictionConfirmationTitle: String {
-        localized(chinese: "确认暂停 Server Mode？", english: "Pause Server Mode?")
-    }
-
-    static var batteryRestrictionConfirmationMessage: String {
-        localized(
-            chinese: "当前已切换到电池供电，并且未允许电池模式。MacBook 已合盖且没有外接显示器；暂停 Server Mode 后，这台 Mac 可能会进入睡眠，远程连接可能会断开。",
-            english: "This Mac has switched to battery power, and battery mode is not allowed. The MacBook appears to be closed with no external display connected. Pausing Server Mode may put this Mac to sleep and disconnect remote sessions."
-        )
-    }
-
-    static var batteryRestrictionConfirmationContinue: String {
-        localized(chinese: "继续暂停", english: "Pause")
-    }
-
     static func currentVersion(_ version: String) -> String {
         localized(chinese: "当前版本：\(version)", english: "Current version: \(version)")
     }
@@ -675,10 +660,6 @@ enum AppText {
 
     static var pausedWaitingForPowerAdapter: String {
         localized(chinese: "已暂停，等待连接电源适配器", english: "Paused, waiting for a power adapter")
-    }
-
-    static var keptRunningOnBatteryForNow: String {
-        localized(chinese: "已继续在电池供电下运行", english: "Kept running on battery for now")
     }
 
     static var serverModeCancelled: String {

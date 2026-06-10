@@ -93,7 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             let shouldTerminate = await appState.prepareForQuit(
-                skipClosedLidConfirmation: self.isTerminatingForUpdateInstall
+                skipClosedLidConfirmation: self.isTerminatingForUpdateInstall,
+                preserveServerModeForUpdateInstall: self.isTerminatingForUpdateInstall
             )
             self.isPreparingToTerminate = false
             self.didFinishTerminatePreparation = shouldTerminate

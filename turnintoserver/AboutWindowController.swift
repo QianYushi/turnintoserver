@@ -1391,15 +1391,58 @@ private final class PreferencesUpdateViewModel: ObservableObject {
           return 1
         }
 
+        launch_installed_executable() {
+          local target_binary="$TARGET_APP/Contents/MacOS/$APP_EXECUTABLE"
+          if [[ ! -x "$target_binary" ]]; then
+            log "Installed executable is not launchable: $target_binary"
+            return 1
+          fi
+
+          log "Launching installed executable directly: $target_binary"
+          /usr/bin/nohup "$target_binary" >/dev/null 2>&1 &
+          local launched_pid="$!"
+          log "Launched installed executable pid=$launched_pid"
+
+          local attempts=0
+          while [[ "$attempts" -lt 50 ]]; do
+            if target_is_running; then
+              return 0
+            fi
+
+            if ! /bin/kill -0 "$launched_pid" >/dev/null 2>&1; then
+              log "Installed executable pid=$launched_pid exited before target was observed."
+              return 1
+            fi
+
+            attempts=$((attempts + 1))
+            /bin/sleep 0.2
+          done
+
+          log "Direct executable launch did not reach running state."
+          return 1
+        }
+
         open_installed_app() {
           stop_stale_backup_instances
           /bin/rm -rf "$BACKUP" >/dev/null 2>&1 || true
 
-          if /usr/bin/open -n "$TARGET_APP"; then
-            /bin/sleep 1
+          if launch_installed_executable; then
             stop_stale_backup_instances
-            target_is_running
-            return $?
+            return 0
+          fi
+
+          log "Direct executable launch failed; trying Launch Services open."
+          if /usr/bin/open -n "$TARGET_APP"; then
+            local attempts=0
+            while [[ "$attempts" -lt 50 ]]; do
+              /bin/sleep 0.2
+              stop_stale_backup_instances
+              if target_is_running; then
+                return 0
+              fi
+              attempts=$((attempts + 1))
+            done
+            log "Launch Services open did not reach running state."
           fi
 
           return 1
