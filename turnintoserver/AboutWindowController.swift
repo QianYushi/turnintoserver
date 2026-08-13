@@ -437,12 +437,12 @@ struct AutomaticRouteSettingsView: View {
                 Spacer()
 
                 Button(AppText.automaticRouteResetBuiltIns) {
-                    let builtIn = AutomaticRouteAccessPointConfiguration.builtIn
-                    routeServiceName = builtIn.route.serviceName
-                    routeDetectionSignature = builtIn.route.detectionSignature
-                    companionServiceName = builtIn.companion.serviceName
-                    companionDetectionSignature = builtIn.companion.detectionSignature
-                    cidrText = AutomaticRoutePlan.builtInCIDRStrings.joined(separator: "\n")
+                    let examples = AutomaticRouteAccessPointConfiguration.examples
+                    routeServiceName = examples.route.serviceName
+                    routeDetectionSignature = examples.route.detectionSignature
+                    companionServiceName = examples.companion.serviceName
+                    companionDetectionSignature = examples.companion.detectionSignature
+                    cidrText = AutomaticRoutePlan.exampleCIDRStrings.joined(separator: "\n")
                     validationMessage = ""
                 }
                 .disabled(isSaving)
@@ -520,7 +520,7 @@ struct AutomaticRouteSettingsView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
-            TextField("", text: signature)
+            TextField(AppText.automaticRouteDetectionSignaturePlaceholder, text: signature)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
         }
         .frame(maxWidth: .infinity, alignment: .leading)

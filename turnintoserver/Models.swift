@@ -258,6 +258,10 @@ enum AppText {
         localized(chinese: "识别特征（可选）", english: "Detection Signature (Optional)")
     }
 
+    static var automaticRouteDetectionSignaturePlaceholder: String {
+        localized(chinese: "例如 10.0.0.53", english: "e.g. 10.0.0.53")
+    }
+
     static var automaticRouteDetectionSignatureHelp: String {
         localized(
             chinese: "可填写该接口 ipconfig 摘要中稳定出现的 DNS、IP 或文本；留空时只判断链路在线。",
@@ -275,13 +279,13 @@ enum AppText {
 
     static var automaticRouteSettingsSupportedPrefixes: String {
         localized(
-            chinese: "支持 /8、/16、/24、/32，最多 256 条。",
-            english: "Supports /8, /16, /24, and /32, up to 256 entries."
+            chinese: "支持 /8、/16、/24、/32，最多 256 条；首次安装显示少量示例。",
+            english: "Supports /8, /16, /24, and /32, up to 256 entries; first launch shows a few examples."
         )
     }
 
     static var automaticRouteResetBuiltIns: String {
-        localized(chinese: "恢复内嵌规则", english: "Restore Built-ins")
+        localized(chinese: "恢复示例", english: "Restore Examples")
     }
 
     static var automaticRouteSave: String {

@@ -49,59 +49,16 @@ enum AutomaticRoutePlan {
     }
 
     static let maximumCIDRCount = 256
-    static let builtInCIDRStrings = [
+    static let exampleCIDRStrings = [
         "10.0.0.0/8",
-        "196.0.0.0/8",
-        "168.169.166.20/32",
-        "168.169.168.65/32",
-        "172.16.3.56/32",
-        "172.16.3.58/32",
-        "172.25.1.11/32",
-        "172.25.1.21/32",
-        "172.26.10.5/32",
-        "172.26.10.7/32",
-        "172.26.10.8/32",
-        "172.26.81.105/32",
-        "172.26.82.93/32",
-        "172.28.1.5/32",
-        "172.28.1.6/32",
-        "172.31.1.155/32",
-        "172.31.1.237/32",
-        "172.31.1.244/32",
-        "172.31.1.249/32",
-        "192.168.0.18/32",
-        "192.168.0.19/32",
-        "192.168.100.74/32",
-        "192.168.102.253/32",
-        "192.168.103.202/32",
-        "192.168.105.11/32",
-        "192.168.107.11/32",
-        "192.168.107.12/32",
-        "192.168.108.21/32",
-        "192.168.111.20/32",
-        "192.168.117.241/32",
-        "192.168.119.20/32",
-        "192.168.119.56/32",
-        "192.168.119.57/32",
-        "192.168.119.58/32",
-        "192.168.121.21/32",
-        "192.168.126.151/32",
-        "192.168.130.11/32",
-        "192.168.131.248/32",
-        "192.168.133.251/32",
-        "192.168.133.252/32",
-        "192.168.143.51/32",
-        "192.168.18.168/32",
-        "192.168.19.6/32",
-        "192.168.20.1/32",
-        "192.168.20.194/32",
-        "192.168.50.26/32"
+        "192.168.1.0/24",
+        "172.16.10.20/32"
     ]
 
     static func configuredCIDRs(defaults: UserDefaults = .standard) -> [CIDR] {
         let savedValues = defaults.stringArray(forKey: AppDefaultsKey.automaticRoutingCIDRs)
-        return (try? validatedCIDRs(savedValues ?? builtInCIDRStrings))
-            ?? (try! validatedCIDRs(builtInCIDRStrings))
+        return (try? validatedCIDRs(savedValues ?? exampleCIDRStrings))
+            ?? (try! validatedCIDRs(exampleCIDRStrings))
     }
 
     static func configuredCIDRStrings(defaults: UserDefaults = .standard) -> [String] {
@@ -222,19 +179,19 @@ struct AutomaticRouteAccessPointConfiguration: Equatable, Hashable {
     let route: AutomaticRouteAccessPoint
     let companion: AutomaticRouteAccessPoint
 
-    static let builtIn = AutomaticRouteAccessPointConfiguration(
+    static let examples = AutomaticRouteAccessPointConfiguration(
         route: AutomaticRouteAccessPoint(
             serviceName: "Wi-Fi",
-            detectionSignature: "10.1.20.63"
+            detectionSignature: ""
         ),
         companion: AutomaticRouteAccessPoint(
-            serviceName: "ZTE Mobile Broadband",
+            serviceName: "Ethernet",
             detectionSignature: ""
         )
     )
 
     static func configured(defaults: UserDefaults = .standard) -> AutomaticRouteAccessPointConfiguration {
-        let fallback = builtIn
+        let fallback = examples
         return (try? validated(
             routeServiceName: defaults.string(
                 forKey: AppDefaultsKey.automaticRoutingRouteServiceName
@@ -433,14 +390,14 @@ final class AutomaticRouteManager {
 
         let lastAppliedStrings = defaults.stringArray(
             forKey: AppDefaultsKey.automaticRoutingLastAppliedCIDRs
-        ) ?? AutomaticRoutePlan.builtInCIDRStrings
+        ) ?? AutomaticRoutePlan.exampleCIDRStrings
         let lastAppliedCIDRs = (try? AutomaticRoutePlan.validatedCIDRs(lastAppliedStrings))
             ?? configuredCIDRs
         retiredManagedRouteKeys = Set(AutomaticRoutePlan.routeKeys(for: lastAppliedCIDRs))
             .subtracting(AutomaticRoutePlan.routeKeys(for: configuredCIDRs))
         let lastAppliedRouteServiceName = defaults.string(
             forKey: AppDefaultsKey.automaticRoutingLastAppliedRouteServiceName
-        ) ?? AutomaticRouteAccessPointConfiguration.builtIn.route.serviceName
+        ) ?? AutomaticRouteAccessPointConfiguration.examples.route.serviceName
         retiredRouteServiceNames = lastAppliedRouteServiceName == configuredAccessPoints.route.serviceName
             ? []
             : [lastAppliedRouteServiceName]
