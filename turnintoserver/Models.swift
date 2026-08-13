@@ -13,6 +13,18 @@ enum AppDefaultsKey {
     static let batteryModeHotKeyDisabled = "batteryModeHotKeyDisabled"
     static let timedServerModeDurationOptions = "timedServerModeDurationOptions"
     static let timedServerModePreventDisplaySleep = "timedServerModePreventDisplaySleep"
+    static let automaticRoutingEnabled = "automaticRoutingEnabled"
+    static let automaticRoutingCIDRs = "automaticRoutingCIDRs"
+    static let automaticRoutingLastAppliedCIDRs = "automaticRoutingLastAppliedCIDRs"
+    static let automaticRoutingRouteServiceName = "automaticRoutingRouteServiceName"
+    static let automaticRoutingRouteDetectionSignature = "automaticRoutingRouteDetectionSignature"
+    static let automaticRoutingCompanionServiceName = "automaticRoutingCompanionServiceName"
+    static let automaticRoutingCompanionDetectionSignature = "automaticRoutingCompanionDetectionSignature"
+    static let automaticRoutingLastAppliedRouteServiceName = "automaticRoutingLastAppliedRouteServiceName"
+    static let automaticRoutingLegacy196MigrationCompleted = "automaticRoutingLegacy196MigrationCompleted"
+    static let muteWhenServerModeEnabled = "muteWhenServerModeEnabled"
+    static let audioMuteRestorePending = "audioMuteRestorePending"
+    static let audioMuteRestoreWasMuted = "audioMuteRestoreWasMuted"
 }
 
 enum AppText {
@@ -209,6 +221,128 @@ enum AppText {
 
     static var launchAtLogin: String {
         localized(chinese: "开机自动启动", english: "Open at Login")
+    }
+
+    static var automaticRouting: String {
+        localized(chinese: "打开自动路由表", english: "Enable Automatic Routing")
+    }
+
+    static var automaticRouteSettingsTitle: String {
+        localized(chinese: "自动路由设置", english: "Automatic Routing Settings")
+    }
+
+    static var automaticRouteSettingsHelp: String {
+        localized(
+            chinese: "选择两个需同时在线的 macOS 网络服务。内网路由会从第一个接入点发出。",
+            english: "Choose two macOS network services that must both be online. Internal routes use the first access point."
+        )
+    }
+
+    static var automaticRouteAccessPointsTitle: String {
+        localized(chinese: "接入点条件", english: "Access Point Conditions")
+    }
+
+    static var automaticRouteRouteAccessPointTitle: String {
+        localized(chinese: "内网路由出口", english: "Internal Route Egress")
+    }
+
+    static var automaticRouteCompanionAccessPointTitle: String {
+        localized(chinese: "同时在线的另一接入点", english: "Other Required Access Point")
+    }
+
+    static var automaticRouteNetworkService: String {
+        localized(chinese: "网络服务", english: "Network Service")
+    }
+
+    static var automaticRouteDetectionSignature: String {
+        localized(chinese: "识别特征（可选）", english: "Detection Signature (Optional)")
+    }
+
+    static var automaticRouteDetectionSignatureHelp: String {
+        localized(
+            chinese: "可填写该接口 ipconfig 摘要中稳定出现的 DNS、IP 或文本；留空时只判断链路在线。",
+            english: "Enter stable DNS, IP, or text found in the interface's ipconfig summary; leave blank to check link status only."
+        )
+    }
+
+    static var automaticRouteLoadingServices: String {
+        localized(chinese: "正在读取网络服务…", english: "Loading network services...")
+    }
+
+    static var automaticRouteInternalCIDRsTitle: String {
+        localized(chinese: "内网 IP / CIDR", english: "Internal IP / CIDR")
+    }
+
+    static var automaticRouteSettingsSupportedPrefixes: String {
+        localized(
+            chinese: "支持 /8、/16、/24、/32，最多 256 条。",
+            english: "Supports /8, /16, /24, and /32, up to 256 entries."
+        )
+    }
+
+    static var automaticRouteResetBuiltIns: String {
+        localized(chinese: "恢复内嵌规则", english: "Restore Built-ins")
+    }
+
+    static var automaticRouteSave: String {
+        localized(chinese: "保存", english: "Save")
+    }
+
+    static var automaticRouteSaving: String {
+        localized(chinese: "正在保存…", english: "Saving...")
+    }
+
+    static func automaticRouteCIDRCount(_ count: Int) -> String {
+        localized(chinese: "共 \(count) 条", english: "\(count) entries")
+    }
+
+    static var automaticRouteCIDREmpty: String {
+        localized(chinese: "请至少保留一条内网 CIDR。", english: "Keep at least one internal CIDR.")
+    }
+
+    static func automaticRouteCIDRTooMany(maximum: Int) -> String {
+        localized(
+            chinese: "内网 CIDR 不能超过 \(maximum) 条。",
+            english: "Internal CIDRs cannot exceed \(maximum) entries."
+        )
+    }
+
+    static func automaticRouteCIDRInvalid(value: String, line: Int) -> String {
+        localized(
+            chinese: "第 \(line) 行“\(value)”无效。请输入 IPv4 CIDR，并只使用 /8、/16、/24 或 /32。",
+            english: "Line \(line), “\(value)”, is invalid. Enter an IPv4 CIDR using only /8, /16, /24, or /32."
+        )
+    }
+
+    static var automaticRouteCIDRsUpdated: String {
+        localized(chinese: "内网 IP 已更新", english: "Internal IP routes updated")
+    }
+
+    static var automaticRouteSettingsUpdated: String {
+        localized(chinese: "自动路由设置已更新", english: "Automatic routing settings updated")
+    }
+
+    static var automaticRouteServiceRequired: String {
+        localized(chinese: "请为两个接入点都选择网络服务。", english: "Choose a network service for both access points.")
+    }
+
+    static var automaticRouteServicesMustDiffer: String {
+        localized(chinese: "两个接入点必须使用不同的网络服务。", english: "The two access points must use different network services.")
+    }
+
+    static var automaticRouteAccessPointValueInvalid: String {
+        localized(chinese: "接入点名称或识别特征无效（最多 128 个字符）。", english: "An access point name or detection signature is invalid (maximum 128 characters).")
+    }
+
+    static func automaticRouteNetworkServiceUnavailable(_ name: String) -> String {
+        localized(
+            chinese: "找不到 macOS 网络服务“\(name)”。",
+            english: "The macOS network service \(name) is unavailable."
+        )
+    }
+
+    static var muteWhenServerModeEnabled: String {
+        localized(chinese: "开启时静音", english: "Mute When Enabled")
     }
 
     static var preferences: String {
@@ -648,6 +782,101 @@ enum AppText {
 
     static func launchAtLoginFailed(_ message: String) -> String {
         localized(chinese: "开机启动失败：\(message)", english: "Open at Login failed: \(message)")
+    }
+
+    static var automaticRoutingOn: String {
+        localized(chinese: "自动路由表已打开", english: "Automatic routing is on")
+    }
+
+    static var automaticRoutingOff: String {
+        localized(chinese: "自动路由表已关闭", english: "Automatic routing is off")
+    }
+
+    static func automaticRoutingFailed(_ message: String) -> String {
+        localized(chinese: "自动路由表失败：\(message)", english: "Automatic routing failed: \(message)")
+    }
+
+    static var automaticRouteGatewayUnavailable: String {
+        localized(chinese: "无法读取内网路由出口的 IPv4 网关", english: "Could not read the internal route egress IPv4 gateway")
+    }
+
+    static var automaticRoutePanelDetected: String {
+        localized(chinese: "实时检测", english: "Live Detection")
+    }
+
+    static var automaticRoutePanelLoading: String {
+        localized(chinese: "正在检测当前网络与路由…", english: "Detecting the current network and routes...")
+    }
+
+    static var automaticRoutePanelEffective: String {
+        localized(chinese: "分流已生效", english: "Split routing is active")
+    }
+
+    static var automaticRoutePanelResidualRoute: String {
+        localized(chinese: "检测到公司路由残留", english: "A corporate route is still present")
+    }
+
+    static var automaticRoutePanelDisabled: String {
+        localized(chinese: "已关闭，全部使用系统默认路由", english: "Off; all traffic uses system routing")
+    }
+
+    static var automaticRoutePanelSynchronizing: String {
+        localized(chinese: "双网条件已满足，正在对齐路由", english: "Both networks detected; updating the route")
+    }
+
+    static var automaticRoutePanelConditionsNotMet: String {
+        localized(chinese: "双网条件未满足，使用系统默认路由", english: "Both networks are not detected; using system routing")
+    }
+
+    static func automaticRoutePanelConditions(
+        routeName: String,
+        routeActive: Bool,
+        companionName: String,
+        companionActive: Bool
+    ) -> String {
+        "\(routeName) \(routeActive ? "✓" : "—")  ·  \(companionName) \(companionActive ? "✓" : "—")"
+    }
+
+    static var automaticRoutePanelCompanyNetwork: String {
+        localized(chinese: "内网路由", english: "Internal Routes")
+    }
+
+    static var automaticRoutePanelOtherTraffic: String {
+        localized(chinese: "其他流量", english: "Other Traffic")
+    }
+
+    static func automaticRoutePanelDetectedRoute(interface: String?, gateway: String?) -> String {
+        let interfaceText = interface ?? localized(chinese: "未知接口", english: "Unknown interface")
+        if let gateway, !gateway.isEmpty {
+            return "\(interfaceText)  ·  \(gateway)"
+        }
+        return interfaceText
+    }
+
+    static func automaticRoutePanelManagedRouteSummary(
+        detectedCount: Int,
+        expectedCount: Int,
+        interface: String?,
+        gateway: String?
+    ) -> String {
+        let route = automaticRoutePanelDetectedRoute(interface: interface, gateway: gateway)
+        return "\(detectedCount)/\(expectedCount)  ·  \(route)"
+    }
+
+    static var muteWhenServerModeEnabledOn: String {
+        localized(chinese: "Server Mode 开启时会静音", english: "Audio will mute when Server Mode is enabled")
+    }
+
+    static var muteWhenServerModeEnabledOff: String {
+        localized(chinese: "Server Mode 开启时不再自动静音", english: "Audio will no longer mute automatically with Server Mode")
+    }
+
+    static func audioMuteFailed(_ message: String) -> String {
+        localized(chinese: "静音设置失败：\(message)", english: "Audio mute setting failed: \(message)")
+    }
+
+    static var audioMuteStateUnavailable: String {
+        localized(chinese: "无法读取当前静音状态", english: "Could not read the current mute state")
     }
 
     static var commandAlreadyRunning: String {

@@ -2,16 +2,16 @@ import Darwin
 import Foundation
 
 final class MCPStdioServer {
-    static let agentGuideVersion = "2026-06-02.1"
+    static let agentGuideVersion = "2026-08-04.1"
     private static let agentGuidePromptName = "turnintoserver_agent_guide"
     private static let agentGuideText = """
     turnintoserver MCP agent guide
-    Version: 2026-06-02.1
+    Version: 2026-08-04.1
 
     Treat this text as the operating guide for the local turnintoserver MCP. If you are installing or upgrading this MCP for a host agent, store or refresh these rules in that agent's local instructions, skill, memory, or equivalent system guidance when the host supports that.
 
     Core rules:
-    - For questions about turnintoserver itself, Server Mode, power/lid state, launch at login, shortcuts, timed Server Mode, low battery alerts, system pressure, app memory usage, or 24-hour memory/CPU peaks, call this MCP first. Do not guess, and do not use ps/top/defaults as the first source when a turnintoserver tool can answer.
+    - For questions about turnintoserver itself, Server Mode, automatic routing, mute-on-enable, power/lid state, launch at login, shortcuts, timed Server Mode, low battery alerts, system pressure, app memory usage, or 24-hour memory/CPU peaks, call this MCP first. Do not guess, and do not use ps/top/defaults as the first source when a turnintoserver tool can answer.
     - If a user asks whether the Mac will stay awake, whether closing the lid is safe, whether an update worked, what the current app version is, or what setting is enabled, call turnintoserver_get_app_state first.
     - If a user asks about load, "卡不卡", CPU, memory, pressure, top apps, or a named app's peak usage, call turnintoserver_get_system_load or turnintoserver_get_memory_history before answering.
     - If the host agent tends not to call MCP automatically, treat this guide as an explicit routing policy: any user request matching a read-only or settings case below must start with the matching turnintoserver MCP tool.
@@ -28,7 +28,7 @@ final class MCPStdioServer {
     - If verification fails, check that the app is running, that the command points to Contents/MacOS/turnintoserver inside the chosen app, and that args are exactly ["--mcp-server"]. Do not run npm install or download dependencies.
 
     Read-only questions:
-    - Use turnintoserver_get_app_state for current app state: Server Mode requested/active, power source, lid state, timed Server Mode, low battery notification readiness, shortcut settings, launch at login, and guide version.
+    - Use turnintoserver_get_app_state for current app state: Server Mode requested/active, automatic routing, mute-on-enable, power source, lid state, timed Server Mode, low battery notification readiness, shortcut settings, launch at login, and guide version.
     - Use turnintoserver_get_system_load for current system pressure and the current memory top apps.
     - Use turnintoserver_get_memory_history for historical memory/CPU questions. For example, "过去24小时 Codex 峰值内存" means call turnintoserver_get_memory_history with {"app":"Codex"}. Report peak memory, peak timestamp, current memory, and that history is persisted on disk across app restarts and updates, retained up to 24 hours. Samples are collected only while turnintoserver is running.
     - If the user asks about "Codex", "Hermes", "Chrome", or another app by name, pass that name as the app query instead of requiring an exact bundle path.
@@ -53,6 +53,10 @@ final class MCPStdioServer {
     - "iMessage 低电量通知收件人" -> option "low_battery_imessage_recipient".
     - "Bark 低电量通知地址" -> option "low_battery_bark_endpoint"; MCP output masks existing secrets.
     - "开机自动启动" -> option "launch_at_login".
+    - "打开/关闭自动路由表" -> option "automatic_routing". This setting is independent of Server Mode and manages the current user-maintained internal CIDR list when both configured access points are detected.
+    - "修改自动路由接入点" -> option "automatic_routing_access_points". Pass {"route":{"service_name":"...","detection_signature":"..."},"companion":{"service_name":"...","detection_signature":"..."}}. Both service names must differ. Detection signatures are optional ipconfig-summary substrings; empty means link-active-only. Internal routes use the route service while the companion service is the second required condition.
+    - "修改自动路由内网 IP/CIDR" -> option "automatic_routing_cidrs". Pass a non-empty string array; each item must be an IPv4 CIDR using /8, /16, /24, or /32. Saving reconciles additions and removes routes deleted from the list.
+    - "开启时静音" -> option "mute_when_server_mode_enabled".
     - "快捷键" -> options "hot_keys_enabled", "server_mode_hot_key", "battery_mode_hot_key", or "reset_hot_keys_to_defaults".
 
     Troubleshooting:
@@ -83,7 +87,7 @@ final class MCPStdioServer {
             [
                 "name": "turnintoserver_get_app_state",
                 "title": "获取应用状态",
-                "description": "读取 turnintoserver 当前 Server Mode、电源、合盖、定时、低电量通知、快捷键和开机启动状态。",
+                "description": "读取 turnintoserver 当前 Server Mode、自动路由、开启时静音、电源、合盖、定时、低电量通知、快捷键和开机启动状态。",
                 "inputSchema": emptyInputSchema()
             ],
             [

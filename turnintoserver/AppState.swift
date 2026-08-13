@@ -41,6 +41,7 @@ final class AppState: ObservableObject {
         didSet {
             updateServerModeRuntimeTracking()
             notifyStatusIconShouldRefresh()
+            scheduleAudioMuteReconciliation()
             Task { @MainActor in
                 await evaluateLowBatteryNotification()
             }
@@ -126,6 +127,41 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published private(set) var automaticRoutingEnabled: Bool {
+        didSet {
+            defaults.set(automaticRoutingEnabled, forKey: AppDefaultsKey.automaticRoutingEnabled)
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var automaticRoutingCIDRs: [String] {
+        didSet {
+            defaults.set(automaticRoutingCIDRs, forKey: AppDefaultsKey.automaticRoutingCIDRs)
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var automaticRoutingAccessPoints: AutomaticRouteAccessPointConfiguration {
+        didSet {
+            automaticRoutingAccessPoints.persist(to: defaults)
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var isAutomaticRoutingChanging = false {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var muteWhenServerModeEnabled: Bool {
+        didSet {
+            defaults.set(muteWhenServerModeEnabled, forKey: AppDefaultsKey.muteWhenServerModeEnabled)
+            notifyMenuShouldRefresh()
+        }
+    }
+    @Published private(set) var isAudioMuteChanging = false {
+        didSet {
+            notifyMenuShouldRefresh()
+        }
+    }
+
     @Published private(set) var lowBatteryNotificationsEnabled: Bool {
         didSet {
             defaults.set(lowBatteryNotificationsEnabled, forKey: AppDefaultsKey.lowBatteryNotificationsEnabled)
@@ -159,6 +195,8 @@ final class AppState: ObservableObject {
     private let memoryMonitor: MemoryUsageMonitor
     private let memoryHistoryStore: MemoryUsageHistoryStore
     private let launchAtLoginManager: LaunchAtLoginManager
+    private let automaticRouteManager: AutomaticRouteManager
+    private let audioMuteManager: AudioMuteManager
     private let shouldStopExpiredTimedServerModeOnStart: Bool
     private var hasStarted = false
     private var wakeObserver: NSObjectProtocol?
@@ -174,6 +212,7 @@ final class AppState: ObservableObject {
     private var sentLowBatteryThresholds = Set<Int>()
     private var isRefreshingTopMemoryApps = false
     private var topMemoryAppsRefreshTask: Task<Void, Never>?
+    private var audioMuteReconciliationTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
@@ -182,8 +221,14 @@ final class AppState: ObservableObject {
         powerManager: PowerManager? = nil,
         memoryMonitor: MemoryUsageMonitor = MemoryUsageMonitor(),
         memoryHistoryStore: MemoryUsageHistoryStore = MemoryUsageHistoryStore(),
-        launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager()
+        launchAtLoginManager: LaunchAtLoginManager = LaunchAtLoginManager(),
+        automaticRouteManager: AutomaticRouteManager? = nil,
+        audioMuteManager: AudioMuteManager? = nil
     ) {
+        let initialAutomaticRouteCIDRs = AutomaticRoutePlan.configuredCIDRs(defaults: defaults)
+        let initialAutomaticRouteAccessPoints = AutomaticRouteAccessPointConfiguration.configured(
+            defaults: defaults
+        )
         self.defaults = defaults
         self.monitor = monitor
         self.lidMonitor = lidMonitor
@@ -191,6 +236,14 @@ final class AppState: ObservableObject {
         self.memoryMonitor = memoryMonitor
         self.memoryHistoryStore = memoryHistoryStore
         self.launchAtLoginManager = launchAtLoginManager
+        self.automaticRouteManager = automaticRouteManager ?? AutomaticRouteManager(
+            defaults: defaults,
+            initialCIDRs: initialAutomaticRouteCIDRs,
+            initialAccessPoints: initialAutomaticRouteAccessPoints
+        )
+        self.audioMuteManager = audioMuteManager ?? AudioMuteManager(defaults: defaults)
+        automaticRoutingCIDRs = initialAutomaticRouteCIDRs.map(\.stringValue)
+        automaticRoutingAccessPoints = initialAutomaticRouteAccessPoints
 
         defaults.removeObject(forKey: "serverModeActive")
         defaults.removeObject(forKey: "savedPowerSettingsSnapshot")
@@ -199,6 +252,14 @@ final class AppState: ObservableObject {
         let canEnableSavedLowBatteryNotifications = Self.canEnableLowBatteryNotifications(defaults: defaults)
         lowBatteryNotificationsEnabled = savedLowBatteryNotificationsEnabled && canEnableSavedLowBatteryNotifications
         hotKeysEnabled = defaults.object(forKey: AppDefaultsKey.hotKeysEnabled) as? Bool ?? true
+        let legacyAutomaticRoutePlist = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/com.qianyushi.dynamic-split-route.plist")
+        automaticRoutingEnabled = defaults.object(
+            forKey: AppDefaultsKey.automaticRoutingEnabled
+        ) as? Bool ?? FileManager.default.fileExists(atPath: legacyAutomaticRoutePlist.path)
+        muteWhenServerModeEnabled = defaults.object(
+            forKey: AppDefaultsKey.muteWhenServerModeEnabled
+        ) as? Bool ?? false
         timedServerModePreventDisplaySleep = defaults.object(
             forKey: AppDefaultsKey.timedServerModePreventDisplaySleep
         ) as? Bool ?? false
@@ -255,6 +316,13 @@ final class AppState: ObservableObject {
         }
 
         refreshLaunchAtLoginEnabled()
+        self.automaticRouteManager.configure(
+            cidrs: initialAutomaticRouteCIDRs,
+            accessPoints: initialAutomaticRouteAccessPoints
+        )
+        defaults.set(automaticRoutingEnabled, forKey: AppDefaultsKey.automaticRoutingEnabled)
+        defaults.set(automaticRoutingCIDRs, forKey: AppDefaultsKey.automaticRoutingCIDRs)
+        automaticRoutingAccessPoints.persist(to: defaults)
         updateTimedServerModeRemainingDisplay()
         startTimedServerModeTimerIfNeeded()
     }
@@ -669,6 +737,18 @@ final class AppState: ObservableObject {
         startBatteryNotificationTimer()
         startTopMemoryAppsTimer()
 
+        if automaticRoutingEnabled {
+            automaticRouteManager.startMonitoring()
+        } else {
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                try? await self.automaticRouteManager.setEnabled(false)
+            }
+        }
+        scheduleAudioMuteReconciliation()
+
         monitor.start { [weak self] source in
             self?.handlePowerSourceUpdate(source)
         }
@@ -834,6 +914,155 @@ final class AppState: ObservableObject {
 
     private func refreshLaunchAtLoginEnabled() {
         launchAtLoginEnabled = launchAtLoginManager.isEnabled
+    }
+
+    func setAutomaticRoutingEnabled(_ isEnabled: Bool) async {
+        guard automaticRoutingEnabled != isEnabled, !isAutomaticRoutingChanging else {
+            return
+        }
+
+        let previousEnabled = automaticRoutingEnabled
+        isAutomaticRoutingChanging = true
+        automaticRoutingEnabled = isEnabled
+        defer {
+            isAutomaticRoutingChanging = false
+        }
+
+        do {
+            try await automaticRouteManager.setEnabled(isEnabled)
+            lastCommandStatus = isEnabled ? AppText.automaticRoutingOn : AppText.automaticRoutingOff
+        } catch {
+            automaticRoutingEnabled = previousEnabled
+            if previousEnabled {
+                automaticRouteManager.startMonitoring()
+            } else {
+                try? await automaticRouteManager.setEnabled(false)
+            }
+            lastCommandStatus = AppText.automaticRoutingFailed(error.localizedDescription)
+        }
+    }
+
+    func automaticRouteSnapshot() async -> AutomaticRouteSnapshot {
+        await automaticRouteManager.currentSnapshot(isEnabled: automaticRoutingEnabled)
+    }
+
+    var automaticRouteCIDRModels: [AutomaticRoutePlan.CIDR] {
+        (try? AutomaticRoutePlan.validatedCIDRs(automaticRoutingCIDRs))
+            ?? AutomaticRoutePlan.configuredCIDRs(defaults: defaults)
+    }
+
+    var automaticRouteModeDescription: String {
+        AutomaticRoutePlan.modeDescription(
+            for: automaticRouteCIDRModels,
+            accessPoints: automaticRoutingAccessPoints
+        )
+    }
+
+    var automaticRouteBroadNetworks: [String] {
+        AutomaticRoutePlan.broadNetworkDescriptions(for: automaticRouteCIDRModels)
+    }
+
+    var automaticRouteExactHostCount: Int {
+        AutomaticRoutePlan.exactHostCount(for: automaticRouteCIDRModels)
+    }
+
+    func setAutomaticRoutingCIDRs(_ values: [String]) async throws -> [String] {
+        try await setAutomaticRoutingSettings(
+            values,
+            accessPoints: automaticRoutingAccessPoints
+        )
+    }
+
+    func setAutomaticRoutingAccessPoints(
+        _ accessPoints: AutomaticRouteAccessPointConfiguration
+    ) async throws {
+        _ = try await setAutomaticRoutingSettings(
+            automaticRoutingCIDRs,
+            accessPoints: accessPoints
+        )
+    }
+
+    func setAutomaticRoutingSettings(
+        _ values: [String],
+        accessPoints: AutomaticRouteAccessPointConfiguration
+    ) async throws -> [String] {
+        guard !isAutomaticRoutingChanging else {
+            throw AutomaticRouteError.configurationChanging
+        }
+
+        let cidrs = try AutomaticRoutePlan.validatedCIDRs(values)
+        let normalizedValues = cidrs.map(\.stringValue)
+        guard normalizedValues != automaticRoutingCIDRs
+                || accessPoints != automaticRoutingAccessPoints else {
+            return normalizedValues
+        }
+
+        isAutomaticRoutingChanging = true
+        defer {
+            isAutomaticRoutingChanging = false
+        }
+
+        do {
+            try await automaticRouteManager.updateConfiguration(
+                cidrs: cidrs,
+                accessPoints: accessPoints
+            )
+            automaticRoutingCIDRs = normalizedValues
+            automaticRoutingAccessPoints = accessPoints
+            lastCommandStatus = AppText.automaticRouteSettingsUpdated
+            return normalizedValues
+        } catch {
+            lastCommandStatus = AppText.automaticRoutingFailed(error.localizedDescription)
+            throw error
+        }
+    }
+
+    func availableAutomaticRouteNetworkServices() async -> [AutomaticRouteNetworkService] {
+        await automaticRouteManager.availableNetworkServices()
+    }
+
+    func setMuteWhenServerModeEnabled(_ isEnabled: Bool) async {
+        guard muteWhenServerModeEnabled != isEnabled, !isAudioMuteChanging else {
+            return
+        }
+
+        let previousEnabled = muteWhenServerModeEnabled
+        isAudioMuteChanging = true
+        muteWhenServerModeEnabled = isEnabled
+        defer {
+            isAudioMuteChanging = false
+        }
+
+        do {
+            try await audioMuteManager.reconcile(
+                shouldMute: serverModeActive && muteWhenServerModeEnabled
+            )
+            lastCommandStatus = isEnabled
+                ? AppText.muteWhenServerModeEnabledOn
+                : AppText.muteWhenServerModeEnabledOff
+        } catch {
+            muteWhenServerModeEnabled = previousEnabled
+            lastCommandStatus = AppText.audioMuteFailed(error.localizedDescription)
+        }
+    }
+
+    private func scheduleAudioMuteReconciliation() {
+        let shouldMute = serverModeActive && muteWhenServerModeEnabled
+        audioMuteReconciliationTask?.cancel()
+        audioMuteReconciliationTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            do {
+                try await self.audioMuteManager.reconcile(shouldMute: shouldMute)
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                self.lastCommandStatus = AppText.audioMuteFailed(error.localizedDescription)
+            }
+        }
     }
 
     func toggleServerMode() async {
@@ -1106,6 +1335,14 @@ final class AppState: ObservableObject {
             previousRequest: previousRequest,
             successMessage: successMessage
         )
+        if !serverModeActive {
+            audioMuteReconciliationTask?.cancel()
+            do {
+                try await audioMuteManager.reconcile(shouldMute: false)
+            } catch {
+                lastCommandStatus = AppText.audioMuteFailed(error.localizedDescription)
+            }
+        }
         finishCommand()
     }
 

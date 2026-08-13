@@ -28,6 +28,8 @@ I built it because I wanted to use a MacBook as a small temporary server. Most k
 - Can send low battery alerts through iMessage or Bark while running on battery.
 - Supports custom global keyboard shortcuts.
 - Supports launch at login.
+- Can independently route user-maintained internal CIDRs using two configurable access points; both services, their detection signatures, and the CIDRs are editable while the current behavior remains the built-in default.
+- Can mute audio while Server Mode is active, then restore the previous mute state.
 
 ## Good For
 
@@ -64,6 +66,8 @@ The main controls are:
 - `Low Battery Alerts`: sends alerts below 50% and 20% through the configured channels while running on battery; use the right-side Set Up button for iMessage / Bark.
 - `Enable Shortcuts`: turns global shortcuts on or off; use the right-side Set Up button to record the two shortcuts.
 - `Open at Login`: opens the app after login.
+- `Enable Automatic Routing`: independently watches two configurable macOS network services. When the app detects both as online, the current internal CIDR list uses the first Internal Route Egress while all other traffic keeps following the macOS default route. It is independent of Server Mode. The right-side Settings button lets users select both services and provide an optional per-service substring from the `ipconfig` summary (such as a DNS address or IP); an empty signature checks link status only. The same window maintains one IPv4 CIDR per line with `/8`, `/16`, `/24`, or `/32`. The built-in defaults preserve the current Wi-Fi signature `10.1.20.63`, ZTE Mobile Broadband, and the original 46 routes. Saving cleans managed routes from a retired egress and immediately reconciles the new configuration. Hover shows the actual configured service names and app-detected states, current route coverage, and default egress.
+- `Mute When Enabled`: mutes audio while Server Mode is actually active, then restores the previous mute state when Server Mode stops or this option is disabled.
 - `About turnintoserver`: shows the version, developer, GitHub URL, and update checker.
 - `Quit`: restores the default sleep behavior before quitting.
 

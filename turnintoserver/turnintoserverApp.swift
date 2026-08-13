@@ -277,6 +277,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private var timedServerModeSettingsWindowController: TimedServerModeSettingsWindowController?
     private var lowBatterySettingsWindowController: LowBatterySettingsWindowController?
     private var shortcutSettingsWindowController: ShortcutSettingsWindowController?
+    private var automaticRouteSettingsWindowController: AutomaticRouteSettingsWindowController?
     private var cancellables = Set<AnyCancellable>()
     private var isMenuOpen = false
     private var menuShortcutEventMonitor: Any?
@@ -292,12 +293,16 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private weak var memorySectionHeaderRowView: MenuMemorySectionHeaderRowView?
     private var topMemoryAppRowViews: [MenuMemoryAppRowView] = []
     private let memoryTrendPanelController = MemoryTrendPanelController()
+    private let automaticRouteInfoPanelController = AutomaticRouteInfoPanelController()
+    private var automaticRouteHoverRequestID = UUID()
     private var memorySectionExpanded = false
     private var lastServerModeMemoryDefaultExpanded = false
     private weak var batteryRowView: MenuToggleRowView?
     private weak var lowBatteryRowView: MenuToggleRowView?
     private weak var shortcutsRowView: MenuToggleRowView?
     private weak var launchAtLoginRowView: MenuToggleRowView?
+    private weak var automaticRoutingRowView: MenuToggleRowView?
+    private weak var muteWhenEnabledRowView: MenuToggleRowView?
     private weak var quitMenuItem: NSMenuItem?
 
     init(appState: AppState) {
@@ -378,6 +383,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             appState.$hotKeysEnabled.map { _ in () }.eraseToAnyPublisher(),
             appState.$launchAtLoginEnabled.map { _ in () }.eraseToAnyPublisher(),
             appState.$isLaunchAtLoginChanging.map { _ in () }.eraseToAnyPublisher(),
+            appState.$automaticRoutingEnabled.map { _ in () }.eraseToAnyPublisher(),
+            appState.$automaticRoutingCIDRs.map { _ in () }.eraseToAnyPublisher(),
+            appState.$automaticRoutingAccessPoints.map { _ in () }.eraseToAnyPublisher(),
+            appState.$isAutomaticRoutingChanging.map { _ in () }.eraseToAnyPublisher(),
+            appState.$muteWhenServerModeEnabled.map { _ in () }.eraseToAnyPublisher(),
+            appState.$isAudioMuteChanging.map { _ in () }.eraseToAnyPublisher(),
             appState.$isCommandRunning.map { _ in () }.eraseToAnyPublisher(),
             appState.$serverModeRuntimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             appState.$timedServerModeEndDate.map { _ in () }.eraseToAnyPublisher(),
@@ -443,12 +454,18 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuDidClose(_ menu: NSMenu) {
         isMenuOpen = false
+        HighlightedMenuRowView.clearActiveHover()
         memoryTrendPanelController.hide()
+        automaticRouteInfoPanelController.hide()
         removeMenuShortcutEventMonitor()
         NotificationCenter.default.post(name: .turnIntoServerMenuHotKeyCaptureDidEnd, object: nil)
     }
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        if let item, item.view == nil {
+            HighlightedMenuRowView.clearActiveHover()
+        }
+
         guard let event = NSApp.currentEvent,
               event.type == .keyDown,
               !event.isARepeat,
@@ -553,6 +570,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func rebuildMenu() {
+        HighlightedMenuRowView.clearActiveHover()
         memoryTrendPanelController.hide()
         menu.removeAllItems()
         serverModeRowView = nil
@@ -569,6 +587,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         lowBatteryRowView = nil
         shortcutsRowView = nil
         launchAtLoginRowView = nil
+        automaticRoutingRowView = nil
+        muteWhenEnabledRowView = nil
         quitMenuItem = nil
 
         addHiddenShortcutMenuItems()
@@ -679,6 +699,38 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         launchAtLoginRowView = launchAtLoginView
         menu.addItem(launchAtLoginItem)
 
+        let automaticRoutingItem = NSMenuItem()
+        let automaticRoutingView = MenuToggleRowView(
+            title: AppText.automaticRouting,
+            isOn: appState.automaticRoutingEnabled,
+            isToggleEnabled: !appState.isAutomaticRoutingChanging,
+            settingsButtonTitle: AppText.settings,
+            target: self,
+            toggleAction: #selector(toggleAutomaticRouting(_:)),
+            settingsAction: #selector(showAutomaticRouteSettings(_:)),
+            onHoverBegan: { [weak self] anchorView in
+                self?.showAutomaticRouteInfo(relativeTo: anchorView)
+            },
+            onHoverEnded: { [weak self] in
+                self?.hideAutomaticRouteInfoIfNeeded()
+            }
+        )
+        automaticRoutingItem.view = automaticRoutingView
+        automaticRoutingRowView = automaticRoutingView
+        menu.addItem(automaticRoutingItem)
+
+        let muteWhenEnabledItem = NSMenuItem()
+        let muteWhenEnabledView = MenuToggleRowView(
+            title: AppText.muteWhenServerModeEnabled,
+            isOn: appState.muteWhenServerModeEnabled,
+            isToggleEnabled: !appState.isAudioMuteChanging,
+            target: self,
+            toggleAction: #selector(toggleMuteWhenServerModeEnabled(_:))
+        )
+        muteWhenEnabledItem.view = muteWhenEnabledView
+        muteWhenEnabledRowView = muteWhenEnabledView
+        menu.addItem(muteWhenEnabledItem)
+
         menu.addItem(.separator())
 
         let aboutItem = NSMenuItem(title: AppText.aboutApplication, action: #selector(showAbout), keyEquivalent: "")
@@ -749,6 +801,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func showSystemPressureTrend(relativeTo anchorView: NSView) {
+        automaticRouteInfoPanelController.hide()
         guard let history = appState.systemPressureHistory() else {
             memoryTrendPanelController.hide()
             return
@@ -766,6 +819,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func showMemoryTrend(for app: MemoryUsageApp, relativeTo anchorView: NSView) {
+        automaticRouteInfoPanelController.hide()
         guard let history = appState.memoryUsageHistory(for: app) else {
             memoryTrendPanelController.hide()
             return
@@ -780,6 +834,36 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         memoryTrendPanelController.scheduleHideIfMouseOutsidePanel(expectedVisibleID: app.id)
+    }
+
+    private func showAutomaticRouteInfo(relativeTo anchorView: NSView) {
+        memoryTrendPanelController.hide()
+        let requestID = UUID()
+        automaticRouteHoverRequestID = requestID
+        automaticRouteInfoPanelController.showLoading(
+            enabled: appState.automaticRoutingEnabled,
+            relativeTo: anchorView
+        )
+
+        Task { @MainActor [weak self, weak anchorView] in
+            guard let self else {
+                return
+            }
+
+            let snapshot = await appState.automaticRouteSnapshot()
+            guard automaticRouteHoverRequestID == requestID,
+                  isMenuOpen,
+                  let anchorView,
+                  anchorView.window != nil else {
+                return
+            }
+
+            automaticRouteInfoPanelController.update(snapshot: snapshot)
+        }
+    }
+
+    private func hideAutomaticRouteInfoIfNeeded() {
+        automaticRouteInfoPanelController.scheduleHideIfMouseOutsidePanel()
     }
 
     private func addHiddenShortcutMenuItems() {
@@ -961,7 +1045,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
               let batteryRowView,
               let lowBatteryRowView,
               let shortcutsRowView,
-              let launchAtLoginRowView else {
+              let launchAtLoginRowView,
+              let automaticRoutingRowView,
+              let muteWhenEnabledRowView else {
             rebuildMenu()
             return
         }
@@ -1011,6 +1097,16 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             isToggleEnabled: appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging,
             tooltip: appState.launchAtLoginSupported ? nil : AppText.launchAtLoginUnsupported
         )
+        automaticRoutingRowView.update(
+            title: AppText.automaticRouting,
+            isOn: appState.automaticRoutingEnabled,
+            isToggleEnabled: !appState.isAutomaticRoutingChanging
+        )
+        muteWhenEnabledRowView.update(
+            title: AppText.muteWhenServerModeEnabled,
+            isOn: appState.muteWhenServerModeEnabled,
+            isToggleEnabled: !appState.isAudioMuteChanging
+        )
         quitMenuItem?.isEnabled = !appState.isCommandRunning
 
         let visibleRowViews = [
@@ -1022,7 +1118,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             batteryRowView,
             lowBatteryRowView,
             shortcutsRowView,
-            launchAtLoginRowView
+            launchAtLoginRowView,
+            automaticRoutingRowView,
+            muteWhenEnabledRowView
         ]
 
         let visibleTimedSubmenuRowViews: [NSView] = [
@@ -1165,6 +1263,24 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         refreshMenuSoon()
     }
 
+    @objc private func toggleAutomaticRouting(_ sender: Any?) {
+        Task { @MainActor in
+            await appState.setAutomaticRoutingEnabled(!appState.automaticRoutingEnabled)
+            if automaticRouteInfoPanelController.isVisible,
+               let automaticRoutingRowView {
+                showAutomaticRouteInfo(relativeTo: automaticRoutingRowView)
+            }
+            refreshMenuSoon()
+        }
+    }
+
+    @objc private func toggleMuteWhenServerModeEnabled(_ sender: Any?) {
+        Task { @MainActor in
+            await appState.setMuteWhenServerModeEnabled(!appState.muteWhenServerModeEnabled)
+            refreshMenuSoon()
+        }
+    }
+
     @objc private func toggleTimedServerModePreventDisplaySleep(_ sender: Any?) {
         appState.toggleTimedServerModePreventDisplaySleep()
         refreshMenuSoon()
@@ -1250,6 +1366,22 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    @objc private func showAutomaticRouteSettings(_ sender: Any?) {
+        hideAutomaticRouteInfoIfNeeded()
+        menu.cancelTracking()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.automaticRouteSettingsWindowController = AutomaticRouteSettingsWindowController(
+                appState: self.appState
+            )
+            self.automaticRouteSettingsWindowController?.show()
+        }
+    }
+
     @objc private func showAbout() {
         if aboutWindowController == nil {
             aboutWindowController = AboutWindowController(appState: appState)
@@ -1298,6 +1430,8 @@ private enum MenuItemState {
 }
 
 private class HighlightedMenuRowView: NSView {
+    private static weak var activeHoveredRow: HighlightedMenuRowView?
+
     var isRowEnabled: Bool {
         didSet {
             updateHighlightAppearance()
@@ -1343,11 +1477,11 @@ private class HighlightedMenuRowView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovered = true
+        setHovered(true)
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovered = false
+        setHovered(false)
         isPressed = false
     }
 
@@ -1371,6 +1505,29 @@ private class HighlightedMenuRowView: NSView {
         self.isPressed = isPressed
     }
 
+    fileprivate static func clearActiveHover() {
+        activeHoveredRow?.setHovered(false)
+        activeHoveredRow = nil
+    }
+
+    private func setHovered(_ hovered: Bool) {
+        if hovered {
+            if HighlightedMenuRowView.activeHoveredRow !== self {
+                HighlightedMenuRowView.activeHoveredRow?.setHovered(false)
+                HighlightedMenuRowView.activeHoveredRow = self
+            }
+        } else if HighlightedMenuRowView.activeHoveredRow === self {
+            HighlightedMenuRowView.activeHoveredRow = nil
+        }
+
+        guard isHovered != hovered else {
+            return
+        }
+
+        isHovered = hovered
+        hoverStateDidChange(isHovered: hovered)
+    }
+
     fileprivate func contentTextColor(isHighlighted: Bool) -> NSColor {
         guard isRowEnabled else {
             return .disabledControlTextColor
@@ -1385,6 +1542,8 @@ private class HighlightedMenuRowView: NSView {
     }
 
     fileprivate func applyHighlightAppearance(isHighlighted: Bool) {}
+
+    fileprivate func hoverStateDidChange(isHovered: Bool) {}
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -1768,14 +1927,12 @@ private final class MenuMemorySectionHeaderRowView: HighlightedMenuRowView {
         cpuValueLabel.textColor = secondaryColor
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        onHoverBegan(self)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        onHoverEnded()
+    override fileprivate func hoverStateDidChange(isHovered: Bool) {
+        if isHovered {
+            onHoverBegan(self)
+        } else {
+            onHoverEnded()
+        }
     }
 
     private static func memoryFont(isExpanded: Bool) -> NSFont {
@@ -2121,6 +2278,337 @@ private final class MemoryTrendPanelController {
         )
 
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+}
+
+private final class AutomaticRouteInfoPanelController {
+    private static let panelSize = NSSize(width: 340, height: 164)
+
+    private let contentView = AutomaticRouteInfoPanelView()
+    private var panel: NSPanel?
+    private var hideRequestVersion = 0
+
+    var isVisible: Bool {
+        panel?.isVisible == true
+    }
+
+    func showLoading(enabled: Bool, relativeTo anchorView: NSView) {
+        cancelPendingHide()
+        contentView.updateLoading(enabled: enabled)
+        let panel = existingOrNewPanel()
+        position(panel: panel, relativeTo: anchorView)
+        panel.orderFront(nil)
+    }
+
+    func update(snapshot: AutomaticRouteSnapshot) {
+        guard isVisible else {
+            return
+        }
+        contentView.update(snapshot: snapshot)
+    }
+
+    func hide() {
+        hideRequestVersion += 1
+        panel?.orderOut(nil)
+    }
+
+    func scheduleHideIfMouseOutsidePanel(after delay: TimeInterval = 0.06) {
+        hideRequestVersion += 1
+        let requestVersion = hideRequestVersion
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  hideRequestVersion == requestVersion,
+                  !isMouseInsidePanel else {
+                return
+            }
+            hide()
+        }
+    }
+
+    private func cancelPendingHide() {
+        hideRequestVersion += 1
+    }
+
+    private func existingOrNewPanel() -> NSPanel {
+        if let panel {
+            return panel
+        }
+
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.contentView = contentView
+        panel.level = .popUpMenu
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = false
+        panel.acceptsMouseMovedEvents = true
+        panel.isReleasedWhenClosed = false
+        contentView.onMouseEntered = { [weak self] in
+            self?.cancelPendingHide()
+        }
+        contentView.onMouseExited = { [weak self] in
+            self?.scheduleHideIfMouseOutsidePanel(after: 0.02)
+        }
+        self.panel = panel
+        return panel
+    }
+
+    private var isMouseInsidePanel: Bool {
+        guard let panel,
+              panel.isVisible else {
+            return false
+        }
+
+        return panel.frame.insetBy(dx: -3, dy: -3).contains(NSEvent.mouseLocation)
+    }
+
+    private func position(panel: NSPanel, relativeTo anchorView: NSView) {
+        guard let window = anchorView.window else {
+            return
+        }
+
+        let anchorRectInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        let anchorRect = window.convertToScreen(anchorRectInWindow)
+        let screenFrame = window.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+        let margin: CGFloat = 8
+        let size = Self.panelSize
+
+        var origin = NSPoint(
+            x: anchorRect.maxX + margin,
+            y: anchorRect.midY - size.height / 2
+        )
+        if origin.x + size.width > screenFrame.maxX - margin {
+            origin.x = anchorRect.minX - size.width - margin
+        }
+        origin.y = min(
+            max(origin.y, screenFrame.minY + margin),
+            screenFrame.maxY - size.height - margin
+        )
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+}
+
+private final class AutomaticRouteInfoPanelView: NSVisualEffectView {
+    private static let preferredSize = NSSize(width: 340, height: 164)
+
+    private let titleLabel = NSTextField(labelWithString: AppText.automaticRouting)
+    private let detectedLabel = NSTextField(labelWithString: AppText.automaticRoutePanelDetected)
+    private let statusDot = AutomaticRouteStatusDotView()
+    private let statusLabel = NSTextField(labelWithString: "")
+    private let conditionsLabel = NSTextField(labelWithString: "")
+    private let separator = NSBox()
+    private let companyTitleLabel = NSTextField(labelWithString: AppText.automaticRoutePanelCompanyNetwork)
+    private let companyValueLabel = NSTextField(labelWithString: "")
+    private let otherTitleLabel = NSTextField(labelWithString: AppText.automaticRoutePanelOtherTraffic)
+    private let otherValueLabel = NSTextField(labelWithString: "")
+    private var hoverTrackingArea: NSTrackingArea?
+
+    var onMouseEntered: (() -> Void)?
+    var onMouseExited: (() -> Void)?
+
+    init() {
+        super.init(frame: NSRect(origin: .zero, size: Self.preferredSize))
+
+        material = .popover
+        blendingMode = .behindWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.masksToBounds = true
+        updateLayerBorder()
+
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+        detectedLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        detectedLabel.textColor = .secondaryLabelColor
+        detectedLabel.alignment = .right
+        statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        statusLabel.textColor = .labelColor
+        conditionsLabel.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        conditionsLabel.textColor = .secondaryLabelColor
+
+        [companyTitleLabel, otherTitleLabel].forEach { label in
+            label.font = .systemFont(ofSize: 10.5, weight: .regular)
+            label.textColor = .secondaryLabelColor
+        }
+        [companyValueLabel, otherValueLabel].forEach { label in
+            label.font = .monospacedSystemFont(ofSize: 10.5, weight: .semibold)
+            label.textColor = .labelColor
+            label.alignment = .right
+            label.lineBreakMode = .byTruncatingMiddle
+        }
+
+        separator.boxType = .separator
+
+        [
+            titleLabel,
+            detectedLabel,
+            statusDot,
+            statusLabel,
+            conditionsLabel,
+            separator,
+            companyTitleLabel,
+            companyValueLabel,
+            otherTitleLabel,
+            otherValueLabel
+        ].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.preferredSize.width),
+            heightAnchor.constraint(equalToConstant: Self.preferredSize.height),
+
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 11),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: detectedLabel.leadingAnchor, constant: -8),
+
+            detectedLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            detectedLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+
+            statusDot.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            statusDot.centerYAnchor.constraint(equalTo: statusLabel.centerYAnchor),
+            statusDot.widthAnchor.constraint(equalToConstant: 8),
+            statusDot.heightAnchor.constraint(equalToConstant: 8),
+
+            statusLabel.leadingAnchor.constraint(equalTo: statusDot.trailingAnchor, constant: 7),
+            statusLabel.trailingAnchor.constraint(equalTo: detectedLabel.trailingAnchor),
+            statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 9),
+
+            conditionsLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            conditionsLabel.trailingAnchor.constraint(equalTo: detectedLabel.trailingAnchor),
+            conditionsLabel.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 5),
+
+            separator.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: detectedLabel.trailingAnchor),
+            separator.topAnchor.constraint(equalTo: conditionsLabel.bottomAnchor, constant: 9),
+
+            companyTitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            companyTitleLabel.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 10),
+            companyTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: companyValueLabel.leadingAnchor, constant: -8),
+
+            companyValueLabel.trailingAnchor.constraint(equalTo: detectedLabel.trailingAnchor),
+            companyValueLabel.centerYAnchor.constraint(equalTo: companyTitleLabel.centerYAnchor),
+            companyValueLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 205),
+
+            otherTitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            otherTitleLabel.topAnchor.constraint(equalTo: companyTitleLabel.bottomAnchor, constant: 10),
+            otherTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: otherValueLabel.leadingAnchor, constant: -8),
+
+            otherValueLabel.trailingAnchor.constraint(equalTo: detectedLabel.trailingAnchor),
+            otherValueLabel.centerYAnchor.constraint(equalTo: otherTitleLabel.centerYAnchor),
+            otherValueLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 205)
+        ])
+    }
+
+    func updateLoading(enabled: Bool) {
+        statusDot.color = enabled ? .systemOrange : .systemGray
+        statusLabel.stringValue = enabled
+            ? AppText.automaticRoutePanelLoading
+            : AppText.automaticRoutePanelDisabled
+        conditionsLabel.stringValue = AppText.automaticRoutePanelLoading
+        companyValueLabel.stringValue = "—"
+        otherValueLabel.stringValue = "—"
+    }
+
+    func update(snapshot: AutomaticRouteSnapshot) {
+        if snapshot.managedRouteIsEffective {
+            statusDot.color = .systemGreen
+            statusLabel.stringValue = AppText.automaticRoutePanelEffective
+        } else if !snapshot.expectsManagedRoutes && snapshot.managedRouteIsPresent {
+            statusDot.color = .systemOrange
+            statusLabel.stringValue = AppText.automaticRoutePanelResidualRoute
+        } else if !snapshot.isEnabled {
+            statusDot.color = .systemGray
+            statusLabel.stringValue = AppText.automaticRoutePanelDisabled
+        } else if snapshot.routingConditionsAreMet {
+            statusDot.color = .systemOrange
+            statusLabel.stringValue = AppText.automaticRoutePanelSynchronizing
+        } else {
+            statusDot.color = .systemGray
+            statusLabel.stringValue = AppText.automaticRoutePanelConditionsNotMet
+        }
+
+        conditionsLabel.stringValue = AppText.automaticRoutePanelConditions(
+            routeName: snapshot.routeAccessPointName,
+            routeActive: snapshot.routeAccessPointIsActive,
+            companionName: snapshot.companionAccessPointName,
+            companionActive: snapshot.companionAccessPointIsActive
+        )
+        let detectedRouteCount = snapshot.expectsManagedRoutes
+            ? snapshot.matchingManagedRouteCount
+            : snapshot.installedManagedRouteCount
+        companyValueLabel.stringValue = AppText.automaticRoutePanelManagedRouteSummary(
+            detectedCount: detectedRouteCount,
+            expectedCount: snapshot.expectedManagedRouteCount,
+            interface: snapshot.managedDestinationInterface,
+            gateway: snapshot.managedDestinationGateway
+        )
+        otherValueLabel.stringValue = AppText.automaticRoutePanelDetectedRoute(
+            interface: snapshot.defaultRouteInterface,
+            gateway: snapshot.defaultRouteGateway
+        )
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateLayerBorder()
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onMouseEntered?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onMouseExited?()
+    }
+
+    private func updateLayerBorder() {
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+}
+
+private final class AutomaticRouteStatusDotView: NSView {
+    var color: NSColor = .systemGray {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        color.setFill()
+        NSBezierPath(ovalIn: bounds.insetBy(dx: 0.5, dy: 0.5)).fill()
     }
 }
 
@@ -2784,6 +3272,8 @@ private final class MenuToggleRowView: HighlightedMenuRowView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
     private let toggleOverlayButton = MenuRowButton()
+    private let onHoverBegan: ((NSView) -> Void)?
+    private let onHoverEnded: (() -> Void)?
 
     init(
         title: String,
@@ -2794,8 +3284,12 @@ private final class MenuToggleRowView: HighlightedMenuRowView {
         settingsButtonTitle: String? = nil,
         target: AnyObject,
         toggleAction: Selector,
-        settingsAction: Selector? = nil
+        settingsAction: Selector? = nil,
+        onHoverBegan: ((NSView) -> Void)? = nil,
+        onHoverEnded: (() -> Void)? = nil
     ) {
+        self.onHoverBegan = onHoverBegan
+        self.onHoverEnded = onHoverEnded
         super.init(width: MenuRowMetric.width, height: MenuRowMetric.height, isRowEnabled: isToggleEnabled)
 
         checkmarkLabel.stringValue = isOn ? "✓" : ""
@@ -2918,6 +3412,14 @@ private final class MenuToggleRowView: HighlightedMenuRowView {
         subviews.compactMap { $0 as? NSTextField }
             .filter { $0 !== checkmarkLabel && $0 !== titleLabel }
             .forEach { $0.textColor = isHighlighted ? color : .tertiaryLabelColor }
+    }
+
+    override fileprivate func hoverStateDidChange(isHovered: Bool) {
+        if isHovered {
+            onHoverBegan?(self)
+        } else {
+            onHoverEnded?()
+        }
     }
 }
 

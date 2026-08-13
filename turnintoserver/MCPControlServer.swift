@@ -30,6 +30,8 @@ final class MCPControlServer {
         case int(Int)
         case intArray([Int])
         case string(String)
+        case stringArray([String])
+        case automaticRouteAccessPoints(AutomaticRouteAccessPointConfiguration)
         case hotKey(HotKeyShortcut?)
         case clearTimedServerMode
         case resetHotKeys
@@ -395,7 +397,26 @@ final class MCPControlServer {
                 "timed_server_mode": timedServerModeJSON(appState),
                 "low_battery_notifications": lowBatteryJSON(appState, readiness: readiness),
                 "hot_keys": hotKeysJSON(appState),
-                "launch_at_login": launchAtLoginJSON(appState)
+                "launch_at_login": launchAtLoginJSON(appState),
+                "automatic_routing": [
+                    "enabled": appState.automaticRoutingEnabled,
+                    "is_changing": appState.isAutomaticRoutingChanging,
+                    "mode": appState.automaticRouteModeDescription,
+                    "managed_route_count": appState.automaticRoutingCIDRs.count,
+                    "broad_network": appState.automaticRouteBroadNetworks.first ?? NSNull(),
+                    "broad_networks": appState.automaticRouteBroadNetworks,
+                    "exact_host_count": appState.automaticRouteExactHostCount,
+                    "cidrs": appState.automaticRoutingCIDRs,
+                    "access_points": automaticRouteAccessPointsJSON(
+                        appState.automaticRoutingAccessPoints
+                    ),
+                    "supported_prefix_lengths": [8, 16, 24, 32],
+                    "maximum_cidr_count": AutomaticRoutePlan.maximumCIDRCount
+                ] as [String: Any],
+                "mute_when_server_mode_enabled": [
+                    "enabled": appState.muteWhenServerModeEnabled,
+                    "is_changing": appState.isAudioMuteChanging
+                ]
             ],
             "control": [
                 "socket_path": socketPath,
@@ -580,6 +601,40 @@ final class MCPControlServer {
                 currentValue: appState.launchAtLoginEnabled,
                 canSet: appState.launchAtLoginSupported && !appState.isLaunchAtLoginChanging,
                 impact: "设置是否开机自动启动。macOS 13 以下不支持。"
+            ),
+            optionJSON(
+                name: "automatic_routing",
+                title: AppText.automaticRouting,
+                valueType: "boolean",
+                currentValue: appState.automaticRoutingEnabled,
+                canSet: !appState.isAutomaticRoutingChanging,
+                impact: "独立启停两个用户配置接入点的自动分流。开启时管理当前 \(appState.automaticRoutingCIDRs.count) 条用户内网 CIDR，不受 Server Mode 状态控制。"
+            ),
+            optionJSON(
+                name: "automatic_routing_access_points",
+                title: AppText.automaticRouteAccessPointsTitle,
+                valueType: "object",
+                currentValue: automaticRouteAccessPointsJSON(
+                    appState.automaticRoutingAccessPoints
+                ),
+                canSet: !appState.isAutomaticRoutingChanging,
+                impact: "修改内网路由出口和必须同时在线的另一接入点。每端选择 macOS 网络服务，可选识别特征会在 ipconfig 摘要中匹配；留空则只判断链路在线。"
+            ),
+            optionJSON(
+                name: "automatic_routing_cidrs",
+                title: AppText.automaticRouteInternalCIDRsTitle,
+                valueType: "string_array",
+                currentValue: appState.automaticRoutingCIDRs,
+                canSet: !appState.isAutomaticRoutingChanging,
+                impact: "替换自动路由的内网 CIDR 列表；仅支持 /8、/16、/24、/32，保存后会立即清理已删除的旧路由并按当前网络条件重新对齐。"
+            ),
+            optionJSON(
+                name: "mute_when_server_mode_enabled",
+                title: AppText.muteWhenServerModeEnabled,
+                valueType: "boolean",
+                currentValue: appState.muteWhenServerModeEnabled,
+                canSet: !appState.isAudioMuteChanging,
+                impact: "Server Mode 实际开启时自动静音；关闭 Server Mode 或取消本选项时恢复开启前的静音状态。"
             )
         ]
     }
@@ -850,6 +905,70 @@ final class MCPControlServer {
                 requestedValueForResponse: value,
                 impact: value ? "将注册为开机自动启动。" : "将取消开机自动启动。"
             )
+        case "automatic_routing":
+            guard !appState.isAutomaticRoutingChanging else {
+                throw ControlFailure(code: "command_running", message: "Automatic routing status is changing.")
+            }
+            let value = try boolValue(rawValue, option: option)
+            return PreparedSettingChange(
+                option: option,
+                title: AppText.automaticRouting,
+                value: .bool(value),
+                currentValueForResponse: appState.automaticRoutingEnabled,
+                requestedValueForResponse: value,
+                impact: value
+                    ? "将独立开启 \(appState.automaticRoutingAccessPoints.route.serviceName) + \(appState.automaticRoutingAccessPoints.companion.serviceName) 自动分流，管理当前 \(appState.automaticRoutingCIDRs.count) 条用户内网 CIDR。"
+                    : "将停止自动路由监听，并立即删除 App 管理的 \(appState.automaticRoutingCIDRs.count) 条内网路由。"
+            )
+        case "automatic_routing_access_points":
+            guard !appState.isAutomaticRoutingChanging else {
+                throw ControlFailure(code: "command_running", message: "Automatic routing configuration is changing.")
+            }
+            let accessPoints = try automaticRouteAccessPointValue(rawValue, option: option)
+            return PreparedSettingChange(
+                option: option,
+                title: AppText.automaticRouteAccessPointsTitle,
+                value: .automaticRouteAccessPoints(accessPoints),
+                currentValueForResponse: automaticRouteAccessPointsJSON(
+                    appState.automaticRoutingAccessPoints
+                ),
+                requestedValueForResponse: automaticRouteAccessPointsJSON(accessPoints),
+                impact: "将把自动路由接入点从 \(appState.automaticRoutingAccessPoints.route.serviceName) + \(appState.automaticRoutingAccessPoints.companion.serviceName) 替换为 \(accessPoints.route.serviceName) + \(accessPoints.companion.serviceName)；已删除的旧出口路由会被清理，并按新条件重新对齐。"
+            )
+        case "automatic_routing_cidrs":
+            guard !appState.isAutomaticRoutingChanging else {
+                throw ControlFailure(code: "command_running", message: "Automatic routing configuration is changing.")
+            }
+            let values = try stringArrayValue(rawValue, option: option)
+            let normalizedValues: [String]
+            do {
+                normalizedValues = try AutomaticRoutePlan.validatedCIDRs(values).map(\.stringValue)
+            } catch {
+                throw ControlFailure(code: "invalid_value", message: error.localizedDescription)
+            }
+            return PreparedSettingChange(
+                option: option,
+                title: AppText.automaticRouteInternalCIDRsTitle,
+                value: .stringArray(normalizedValues),
+                currentValueForResponse: appState.automaticRoutingCIDRs,
+                requestedValueForResponse: normalizedValues,
+                impact: "将把自动路由内网列表从 \(appState.automaticRoutingCIDRs.count) 条替换为 \(normalizedValues.count) 条；删除项会从系统路由表清理，新增项会按当前两个接入点条件应用。"
+            )
+        case "mute_when_server_mode_enabled":
+            guard !appState.isAudioMuteChanging else {
+                throw ControlFailure(code: "command_running", message: "Audio mute setting is changing.")
+            }
+            let value = try boolValue(rawValue, option: option)
+            return PreparedSettingChange(
+                option: option,
+                title: AppText.muteWhenServerModeEnabled,
+                value: .bool(value),
+                currentValueForResponse: appState.muteWhenServerModeEnabled,
+                requestedValueForResponse: value,
+                impact: value
+                    ? "Server Mode 实际开启时将自动静音，并记录开启前的静音状态。"
+                    : "将取消自动静音；如 App 曾为 Server Mode 静音，会恢复开启前状态。"
+            )
         default:
             throw ControlFailure(code: "unknown_option", message: "Unknown setting option: \(option)")
         }
@@ -898,6 +1017,14 @@ final class MCPControlServer {
             HotKeyShortcut.reset()
         case ("launch_at_login", .bool(let value)):
             appState.setLaunchAtLoginEnabled(value)
+        case ("automatic_routing", .bool(let value)):
+            await appState.setAutomaticRoutingEnabled(value)
+        case ("automatic_routing_cidrs", .stringArray(let values)):
+            _ = try await appState.setAutomaticRoutingCIDRs(values)
+        case ("automatic_routing_access_points", .automaticRouteAccessPoints(let accessPoints)):
+            try await appState.setAutomaticRoutingAccessPoints(accessPoints)
+        case ("mute_when_server_mode_enabled", .bool(let value)):
+            await appState.setMuteWhenServerModeEnabled(value)
         default:
             throw ControlFailure(code: "invalid_pending_change", message: "Pending setting change is invalid.")
         }
@@ -1127,6 +1254,21 @@ final class MCPControlServer {
         ] as [String: Any]
     }
 
+    private func automaticRouteAccessPointsJSON(
+        _ accessPoints: AutomaticRouteAccessPointConfiguration
+    ) -> [String: Any] {
+        [
+            "route": [
+                "service_name": accessPoints.route.serviceName,
+                "detection_signature": accessPoints.route.detectionSignature
+            ],
+            "companion": [
+                "service_name": accessPoints.companion.serviceName,
+                "detection_signature": accessPoints.companion.detectionSignature
+            ]
+        ]
+    }
+
     private func saveHotKey(_ shortcut: HotKeyShortcut?, defaultsKey: String, disabledDefaultsKey: String) {
         if let shortcut {
             shortcut.save(defaultsKey: defaultsKey, disabledDefaultsKey: disabledDefaultsKey)
@@ -1205,6 +1347,45 @@ final class MCPControlServer {
         return string
     }
 
+    private func stringArrayValue(_ value: Any, option: String) throws -> [String] {
+        guard let array = value as? [Any] else {
+            throw ControlFailure(code: "invalid_value", message: "\(option) must be an array of strings.")
+        }
+        return try array.map { item in
+            guard let string = item as? String else {
+                throw ControlFailure(code: "invalid_value", message: "\(option) must be an array of strings.")
+            }
+            return string
+        }
+    }
+
+    private func automaticRouteAccessPointValue(
+        _ value: Any,
+        option: String
+    ) throws -> AutomaticRouteAccessPointConfiguration {
+        guard let object = value as? [String: Any],
+              let route = object["route"] as? [String: Any],
+              let companion = object["companion"] as? [String: Any],
+              let routeServiceName = route["service_name"] as? String,
+              let companionServiceName = companion["service_name"] as? String else {
+            throw ControlFailure(
+                code: "invalid_value",
+                message: "\(option) requires route and companion objects with service_name fields."
+            )
+        }
+
+        do {
+            return try AutomaticRouteAccessPointConfiguration.validated(
+                routeServiceName: routeServiceName,
+                routeDetectionSignature: route["detection_signature"] as? String ?? "",
+                companionServiceName: companionServiceName,
+                companionDetectionSignature: companion["detection_signature"] as? String ?? ""
+            )
+        } catch {
+            throw ControlFailure(code: "invalid_value", message: error.localizedDescription)
+        }
+    }
+
     private func hotKeyValue(_ value: Any, option: String) throws -> HotKeyShortcut? {
         if isNull(value) {
             return nil
@@ -1276,6 +1457,13 @@ final class MCPControlServer {
             "\(appState.lowBatteryNotificationsEnabled)",
             "\(appState.hotKeysEnabled)",
             "\(appState.launchAtLoginEnabled)",
+            "\(appState.automaticRoutingEnabled)",
+            appState.automaticRoutingCIDRs.joined(separator: ","),
+            appState.automaticRoutingAccessPoints.route.serviceName,
+            appState.automaticRoutingAccessPoints.route.detectionSignature,
+            appState.automaticRoutingAccessPoints.companion.serviceName,
+            appState.automaticRoutingAccessPoints.companion.detectionSignature,
+            "\(appState.muteWhenServerModeEnabled)",
             "\(appState.timedServerModeEndDate?.timeIntervalSince1970 ?? 0)",
             "\(appState.timedServerModeSelectedDurationMinutes ?? -1)",
             appState.timedServerModeDurationOptions.map(String.init).joined(separator: ","),

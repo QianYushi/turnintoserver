@@ -139,6 +139,34 @@ final class TimedServerModeSettingsWindowController: NSWindowController {
     }
 }
 
+@MainActor
+final class AutomaticRouteSettingsWindowController: NSWindowController {
+    init(appState: AppState) {
+        let hostingController = NSHostingController(rootView: AutomaticRouteSettingsView(appState: appState))
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = AppText.automaticRouteSettingsTitle
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = NSSize(width: 600, height: 720)
+        window.contentMaxSize = NSSize(width: 600, height: 720)
+        window.setContentSize(NSSize(width: 600, height: 720))
+        window.center()
+
+        super.init(window: window)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
 private struct AboutView: View {
     @ObservedObject private var updateModel: PreferencesUpdateViewModel
     @State private var didCopyAgentMCPInstallPrompt = false
@@ -330,6 +358,284 @@ struct TimedServerModeSettingsView: View {
             .padding(EdgeInsets(top: 14, leading: 20, bottom: 16, trailing: 20))
         }
         .frame(width: 360, height: 360, alignment: .topLeading)
+    }
+}
+
+struct AutomaticRouteSettingsView: View {
+    @ObservedObject private var appState: AppState
+    @State private var routeServiceName: String
+    @State private var routeDetectionSignature: String
+    @State private var companionServiceName: String
+    @State private var companionDetectionSignature: String
+    @State private var networkServices: [AutomaticRouteNetworkService] = []
+    @State private var isLoadingNetworkServices = true
+    @State private var cidrText: String
+    @State private var validationMessage = ""
+    @State private var isSaving = false
+
+    @MainActor
+    init(appState: AppState) {
+        self.appState = appState
+        let accessPoints = appState.automaticRoutingAccessPoints
+        _routeServiceName = State(initialValue: accessPoints.route.serviceName)
+        _routeDetectionSignature = State(initialValue: accessPoints.route.detectionSignature)
+        _companionServiceName = State(initialValue: accessPoints.companion.serviceName)
+        _companionDetectionSignature = State(initialValue: accessPoints.companion.detectionSignature)
+        _cidrText = State(initialValue: appState.automaticRoutingCIDRs.joined(separator: "\n"))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(AppText.automaticRouteSettingsHelp)
+                    .font(.system(size: 13))
+                Text(AppText.automaticRouteDetectionSignatureHelp)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+
+            Text(AppText.automaticRouteAccessPointsTitle)
+                .font(.system(size: 13, weight: .semibold))
+
+            HStack(alignment: .top, spacing: 20) {
+                accessPointEditor(
+                    title: AppText.automaticRouteRouteAccessPointTitle,
+                    selectedService: $routeServiceName,
+                    signature: $routeDetectionSignature
+                )
+                accessPointEditor(
+                    title: AppText.automaticRouteCompanionAccessPointTitle,
+                    selectedService: $companionServiceName,
+                    signature: $companionDetectionSignature
+                )
+            }
+
+            if isLoadingNetworkServices {
+                Text(AppText.automaticRouteLoadingServices)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(AppText.automaticRouteInternalCIDRsTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(AppText.automaticRouteSettingsSupportedPrefixes)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+
+            CIDRTextEditor(text: $cidrText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            HStack(alignment: .center, spacing: 12) {
+                Text(AppText.automaticRouteCIDRCount(displayedCIDRCount))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button(AppText.automaticRouteResetBuiltIns) {
+                    let builtIn = AutomaticRouteAccessPointConfiguration.builtIn
+                    routeServiceName = builtIn.route.serviceName
+                    routeDetectionSignature = builtIn.route.detectionSignature
+                    companionServiceName = builtIn.companion.serviceName
+                    companionDetectionSignature = builtIn.companion.detectionSignature
+                    cidrText = AutomaticRoutePlan.builtInCIDRStrings.joined(separator: "\n")
+                    validationMessage = ""
+                }
+                .disabled(isSaving)
+            }
+
+            if !validationMessage.isEmpty {
+                Text(validationMessage)
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Spacer()
+
+                Button(AppText.cancel) {
+                    NSApp.keyWindow?.close()
+                }
+                .disabled(isSaving)
+
+                Button(isSaving ? AppText.automaticRouteSaving : AppText.automaticRouteSave) {
+                    save()
+                }
+                .disabled(isSaving || appState.isAutomaticRoutingChanging)
+            }
+        }
+        .padding(EdgeInsets(top: 22, leading: 24, bottom: 20, trailing: 24))
+        .frame(width: 600, height: 720, alignment: .topLeading)
+        .onAppear {
+            loadNetworkServices()
+        }
+        .onReceive(appState.$automaticRoutingCIDRs.dropFirst()) { values in
+            guard !isSaving else {
+                return
+            }
+            cidrText = values.joined(separator: "\n")
+        }
+        .onReceive(appState.$automaticRoutingAccessPoints.dropFirst()) { accessPoints in
+            guard !isSaving else {
+                return
+            }
+            routeServiceName = accessPoints.route.serviceName
+            routeDetectionSignature = accessPoints.route.detectionSignature
+            companionServiceName = accessPoints.companion.serviceName
+            companionDetectionSignature = accessPoints.companion.detectionSignature
+        }
+    }
+
+    private func accessPointEditor(
+        title: String,
+        selectedService: Binding<String>,
+        signature: Binding<String>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+
+            Text(AppText.automaticRouteNetworkService)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            Picker("", selection: selectedService) {
+                ForEach(serviceOptions, id: \.name) { service in
+                    Text("\(service.name) (\(service.device))")
+                        .tag(service.name)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(PopUpButtonPickerStyle())
+
+            Text(AppText.automaticRouteDetectionSignature)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            TextField("", text: signature)
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var serviceOptions: [AutomaticRouteNetworkService] {
+        var result = networkServices
+        let selectedNames = [routeServiceName, companionServiceName]
+        for name in selectedNames where !name.isEmpty && !result.contains(where: { $0.name == name }) {
+            result.append(AutomaticRouteNetworkService(name: name, device: "?"))
+        }
+        return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var displayedCIDRCount: Int {
+        if let validated = try? AutomaticRoutePlan.validatedCIDRs(text: cidrText) {
+            return validated.count
+        }
+        return cidrText.components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
+    }
+
+    private func save() {
+        validationMessage = ""
+        isSaving = true
+
+        Task { @MainActor in
+            do {
+                let accessPoints = try AutomaticRouteAccessPointConfiguration.validated(
+                    routeServiceName: routeServiceName,
+                    routeDetectionSignature: routeDetectionSignature,
+                    companionServiceName: companionServiceName,
+                    companionDetectionSignature: companionDetectionSignature
+                )
+                let values = try await appState.setAutomaticRoutingSettings(
+                    cidrText.components(separatedBy: .newlines),
+                    accessPoints: accessPoints
+                )
+                cidrText = values.joined(separator: "\n")
+                isSaving = false
+                NSApp.keyWindow?.close()
+            } catch {
+                validationMessage = error.localizedDescription
+                isSaving = false
+            }
+        }
+    }
+
+    private func loadNetworkServices() {
+        isLoadingNetworkServices = true
+        Task { @MainActor in
+            networkServices = await appState.availableAutomaticRouteNetworkServices()
+            isLoadingNetworkServices = false
+        }
+    }
+}
+
+private struct CIDRTextEditor: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .bezelBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.string = text
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: scrollView.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView,
+              textView.string != text else {
+            return
+        }
+        textView.string = text
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding private var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+            text = textView.string
+        }
     }
 }
 
